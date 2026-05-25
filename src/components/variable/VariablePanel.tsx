@@ -1,16 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Clock, Database } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
@@ -52,8 +45,11 @@ interface Row {
 
 const PAGE_SIZE = 10;
 
+// Module-level cache to avoid flicker when switching tabs
+let rowsCache: Row[] | null = null;
+
 export function VariablePanel() {
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const [rows, setRows] = useState<Row[] | null>(rowsCache);
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Row | null>(null);
   const [creating, setCreating] = useState(false);
@@ -66,9 +62,10 @@ export function VariablePanel() {
       .order("created_at", { ascending: false });
     if (error) {
       toast.error("Failed to load variables");
-      setRows([]);
+      if (!rowsCache) setRows([]);
     } else {
-      setRows(data ?? []);
+      rowsCache = data ?? [];
+      setRows(rowsCache);
     }
   };
 
@@ -113,59 +110,73 @@ export function VariablePanel() {
         </Button>
       </div>
 
-      <Card className="overflow-hidden p-0">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/40">
-              <TableHead className="w-[24%]">Variable</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead className="w-[180px]">Created</TableHead>
-              <TableHead className="w-[120px] text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows === null &&
-              Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell colSpan={4}>
-                    <Skeleton className="h-6 w-full" />
-                  </TableCell>
-                </TableRow>
-              ))}
-            {rows !== null && paged.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="py-12 text-center text-sm text-muted-foreground">
-                  No variables yet. Click <span className="font-medium">Add new variable</span> to create one.
-                </TableCell>
-              </TableRow>
-            )}
-            {paged.map((r) => (
-              <TableRow key={r.var_id}>
-                <TableCell className="font-medium">{r.variable ?? "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{r.description ?? "—"}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {new Date(r.created_at).toLocaleString()}
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => setEditing(r)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDeleteTarget(r)}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Card>
+      <div className="space-y-2.5">
+        {rows === null &&
+          Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-[88px] w-full rounded-xl" />
+          ))}
+
+        {rows !== null && paged.length === 0 && (
+          <Card className="flex flex-col items-center justify-center gap-3 p-14 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-primary">
+              <Database className="h-6 w-6" />
+            </div>
+            <h3 className="text-base font-semibold">No variables yet</h3>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Click <span className="font-medium text-foreground">Add new variable</span> to create your first entry.
+            </p>
+          </Card>
+        )}
+
+        {paged.map((r) => (
+          <Card
+            key={r.var_id}
+            className="group p-4 transition hover:border-primary/50 hover:shadow-md"
+          >
+            {/* Line 1: variable name (full width) + actions */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-base font-semibold text-foreground">
+                  {r.variable ?? "—"}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setEditing(r)}
+                  aria-label="Edit"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  onClick={() => setDeleteTarget(r)}
+                  aria-label="Delete"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Line 2: description + created_at */}
+            <div className="mt-1.5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+              <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                {r.description?.trim() || (
+                  <span className="italic text-muted-foreground/60">No description</span>
+                )}
+              </p>
+              <div className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground/80">
+                <Clock className="h-3 w-3" />
+                <span>{formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}</span>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
 
       {pageCount > 1 && (
         <Pagination>

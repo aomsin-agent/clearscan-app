@@ -1,10 +1,16 @@
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, FileText, Copy, Check, X } from "lucide-react";
+import { Upload, FileText, Copy, Check, X, Info, Sparkles, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Spinner } from "./Spinner";
 import {
   fileToDataUrl,
@@ -19,9 +25,14 @@ import { supabase } from "@/integrations/supabase/client";
 
 type Status = "idle" | "processing" | "done" | "error";
 
+const OCR_NOTICE =
+  "OCR powered by Lovable AI Gateway (Google Gemini 2.5 Flash vision). Uploaded files are sent to Lovable's AI provider for text extraction.";
+
 export function OcrPanel() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [pdfPages, setPdfPages] = useState<string[]>([]);
+  const [pdfPageIdx, setPdfPageIdx] = useState(0);
   const [meta, setMeta] = useState<FileMeta>(null);
   const [text, setText] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -32,6 +43,8 @@ export function OcrPanel() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(null);
     setPreviewUrl(null);
+    setPdfPages([]);
+    setPdfPageIdx(0);
     setMeta(null);
     setText("");
     setStatus("idle");
@@ -42,18 +55,19 @@ export function OcrPanel() {
     async (f: File) => {
       reset();
       setFile(f);
-      setPreviewUrl(URL.createObjectURL(f));
       setStatus("processing");
 
       try {
         let images: string[] = [];
         if (f.type.startsWith("image/")) {
+          setPreviewUrl(URL.createObjectURL(f));
           const m = await readImageMeta(f);
           setMeta(m);
           images = [await fileToDataUrl(f)];
         } else if (f.type === "application/pdf") {
           const { dataUrls, pageCount } = await renderPdfPages(f);
           setMeta({ kind: "pdf", pageCount });
+          setPdfPages(dataUrls);
           images = dataUrls;
         } else {
           throw new Error("Unsupported file type");
@@ -106,46 +120,79 @@ export function OcrPanel() {
     }
   };
 
+  const NoticeBanner = (
+    <TooltipProvider delayDuration={150}>
+      <div className="flex items-center justify-center gap-2 rounded-full border bg-accent/40 px-3 py-1.5 text-xs text-muted-foreground">
+        <Sparkles className="h-3.5 w-3.5 text-primary" />
+        <span>
+          OCR powered by <span className="font-medium text-foreground">Lovable AI Gateway</span> · Google Gemini 2.5 Flash vision
+        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={(e) => e.stopPropagation()}
+              className="text-muted-foreground/80 hover:text-foreground"
+              aria-label="OCR provider details"
+            >
+              <Info className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs text-xs leading-relaxed">
+            {OCR_NOTICE}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
+  );
+
   if (!file) {
     return (
-      <div
-        {...getRootProps()}
-        className={`group relative flex min-h-[420px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed bg-card p-12 text-center transition-all ${
-          isDragActive
-            ? "border-primary bg-accent/40 scale-[1.01]"
-            : "border-border hover:border-primary/60 hover:bg-accent/20"
-        }`}
-        style={{ boxShadow: isDragActive ? "var(--shadow-elegant)" : undefined }}
-      >
-        <input {...getInputProps()} />
+      <div className="space-y-4">
+        <div className="flex justify-center">{NoticeBanner}</div>
         <div
-          className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl text-primary-foreground transition-transform group-hover:scale-105"
-          style={{ background: "var(--gradient-primary)" }}
+          {...getRootProps()}
+          className={`group relative flex min-h-[400px] cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed bg-card p-12 text-center transition-all ${
+            isDragActive
+              ? "border-primary bg-accent/40 scale-[1.01]"
+              : "border-border hover:border-primary/60 hover:bg-accent/20"
+          }`}
+          style={{ boxShadow: isDragActive ? "var(--shadow-elegant)" : undefined }}
         >
-          <Upload className="h-9 w-9" />
+          <input {...getInputProps()} />
+          <div
+            className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl text-primary-foreground transition-transform group-hover:scale-105"
+            style={{ background: "var(--gradient-primary)" }}
+          >
+            <Upload className="h-9 w-9" />
+          </div>
+          <h2 className="text-2xl font-semibold text-foreground">
+            {isDragActive ? "Drop your file here" : "Drop a file or click to upload"}
+          </h2>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            Images (PNG, JPG, WebP) and PDFs are supported. We&apos;ll extract the text for you in seconds.
+          </p>
+          <Button
+            type="button"
+            size="lg"
+            className="mt-8 shadow-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Browse files
+          </Button>
         </div>
-        <h2 className="text-2xl font-semibold text-foreground">
-          {isDragActive ? "Drop your file here" : "Drop a file or click to upload"}
-        </h2>
-        <p className="mt-2 max-w-md text-sm text-muted-foreground">
-          Images (PNG, JPG, WebP) and PDFs are supported. We&apos;ll extract the text for you in seconds.
-        </p>
-        <Button
-          type="button"
-          size="lg"
-          className="mt-8 shadow-md"
-          onClick={(e) => e.stopPropagation()}
-        >
-          Browse files
-        </Button>
       </div>
     );
   }
 
   const isImage = file.type.startsWith("image/");
+  const isPdf = file.type === "application/pdf";
+  const currentPdfPage = pdfPages[pdfPageIdx];
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-center">{NoticeBanner}</div>
+
       <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent text-primary">
@@ -168,8 +215,33 @@ export function OcrPanel() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="overflow-hidden">
-          <div className="border-b bg-muted/40 px-4 py-2 text-sm font-medium text-muted-foreground">
-            Preview
+          <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
+            <span className="text-sm font-medium text-muted-foreground">Preview</span>
+            {isPdf && pdfPages.length > 1 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setPdfPageIdx((i) => Math.max(0, i - 1))}
+                  disabled={pdfPageIdx === 0}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  {pdfPageIdx + 1} / {pdfPages.length}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setPdfPageIdx((i) => Math.min(pdfPages.length - 1, i + 1))}
+                  disabled={pdfPageIdx >= pdfPages.length - 1}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
           <div className="flex max-h-[520px] items-center justify-center overflow-auto bg-muted/20 p-4">
             {isImage && previewUrl && (
@@ -179,12 +251,17 @@ export function OcrPanel() {
                 className="max-h-[480px] w-auto rounded-lg object-contain shadow-sm"
               />
             )}
-            {!isImage && previewUrl && (
-              <iframe
-                src={previewUrl}
-                title={file.name}
-                className="h-[480px] w-full rounded-lg border bg-background"
+            {isPdf && currentPdfPage && (
+              <img
+                src={currentPdfPage}
+                alt={`${file.name} — page ${pdfPageIdx + 1}`}
+                className="max-h-[480px] w-auto rounded-lg object-contain shadow-sm"
               />
+            )}
+            {isPdf && !currentPdfPage && status === "processing" && (
+              <div className="flex h-[440px] items-center justify-center">
+                <Spinner />
+              </div>
             )}
           </div>
         </Card>
@@ -213,7 +290,7 @@ export function OcrPanel() {
             {status === "processing" && (
               <div className="flex h-[440px] flex-col items-center justify-center gap-4">
                 <Spinner />
-                <p className="text-sm text-muted-foreground">Extracting text…</p>
+                <p className="text-sm text-muted-foreground">Extracting text via Lovable AI Gateway…</p>
               </div>
             )}
             {status !== "processing" && (

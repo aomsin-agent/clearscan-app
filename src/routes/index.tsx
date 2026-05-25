@@ -50,13 +50,13 @@ function Index() {
             <TabTrigger value="variable" label="Variable" Icon={Database} />
           </TabsList>
 
-          <TabsContent value="ocr" className="mt-6">
+          <TabsContent value="ocr" forceMount className="mt-6 data-[state=inactive]:hidden">
             <OcrPanel />
           </TabsContent>
-          <TabsContent value="history" className="mt-6">
+          <TabsContent value="history" forceMount className="mt-6 data-[state=inactive]:hidden">
             <HistoryPanel />
           </TabsContent>
-          <TabsContent value="variable" className="mt-6">
+          <TabsContent value="variable" forceMount className="mt-6 data-[state=inactive]:hidden">
             <VariablePanel />
           </TabsContent>
         </Tabs>
