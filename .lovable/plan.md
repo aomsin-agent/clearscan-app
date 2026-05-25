@@ -1,46 +1,56 @@
-# แผนการแก้ไข 4 ประเด็น
+# แผน: เพิ่มตัวเลือกเครื่องมือ OCR 3 แบบ
 
-## 1) ออกแบบตาราง Variables ใหม่ (2 บรรทัดต่อแถว)
-แก้ `src/components/variable/VariablePanel.tsx`:
-- เปลี่ยนจาก `<Table>` 4 คอลัมน์ → เป็น list ของ `Card` แบบเต็มความกว้าง 1 แถวต่อ variable
-- โครงสร้างต่อแถว:
-  - **บรรทัดที่ 1:** ชื่อ `variable` (ตัวหนา ขนาดใหญ่ ใช้พื้นที่เต็มบรรทัด) + ปุ่ม Edit/Delete (การตั้งค่า) ชิดขวา
-  - **บรรทัดที่ 2:** `description` ทางซ้าย + `created_at` (รูปแบบ "x time ago") ชิดขวา ตัวสีจาง
-- คง pagination, dialog เพิ่ม/แก้ไข, alert ลบไว้เหมือนเดิม
-- responsive: บนมือถือ description กับวันที่ stack กันได้
-
-## 2) อธิบายที่มาของ OCR
+## 1) UI: ตัวเลือก OCR Engine ในแท็บ OCR
 แก้ `src/components/ocr/OcrPanel.tsx`:
-- เพิ่ม banner เล็ก ๆ ใต้หัวข้อ/ภายใน dropzone ระบุว่า  
-  *"OCR powered by Lovable AI Gateway (Google Gemini 2.5 Flash vision). ไฟล์ถูกส่งไปยังบริการ AI ของ Lovable เพื่อสกัดข้อความ"*
-- ใส่ไอคอน Info + tooltip รายละเอียดเพิ่มเติม (โมเดล, ผู้ให้บริการ, ไม่เก็บไฟล์ฝั่งผู้ให้บริการ)
-- เพิ่มข้อความสั้นใต้แท็บ "Extracted text" ด้วย เพื่อความชัดเจน
+- เพิ่มแถบเลือก engine (Tabs/SegmentedControl หรือ RadioGroup) เหนือ dropzone:
+  1. **Lovable AI Gateway** (Gemini Flash) — ค่าเริ่มต้น
+  2. **Webhook URL** — ส่งไฟล์ผ่าน webhook ภายนอก
+  3. **Self-hosted (Docker)** — ส่งไป HTTP endpoint ภายใน (เช่น `http://localhost:8000`)
+- เมื่อเลือก #2 หรือ #3 → แสดง `<Select>` dropdown แสดงรายการจากตาราง `variable` (key = `variable`, value = `description` ที่จะใช้เป็น URL)
+  - โหลด list ครั้งแรกตอน mount ผ่าน `supabase.from("variable").select(...)` (ใช้ module cache ร่วมกับ VariablePanel)
+  - มีปุ่ม Refresh เล็ก ๆ และลิงก์ "Manage variables" ที่นำไปแท็บ Variables
+  - แสดง helper text อธิบายว่าใช้ `description` ของตัวแปรเป็น URL ปลายทาง
+- ปุ่ม Browse/Drop จะ disabled จนกว่าจะเลือก variable (สำหรับ #2/#3)
 
-## 3) PDF preview ถูก Chrome บล็อก
-**สาเหตุ:** ใช้ `<iframe src={blob:URL}>` แสดง PDF ผ่าน Chrome built-in PDF viewer — Chrome เวอร์ชันใหม่บล็อก plugin/embed PDF ใน iframe จาก blob URL ในหลายบริบท (sandbox/COEP/iframe ภายใน preview ของ Lovable) ทำให้ขึ้นหน้าว่างหรือ "blocked".
+## 2) Flow การประมวลผลแยกตาม engine
+แก้/เพิ่มใน `src/lib/ocr.functions.ts`:
+- คง `runOcr` สำหรับ Lovable Gateway เดิม
+- เพิ่ม `runWebhookOcr({ url, fileName, fileType, fileSize, fileBase64 })`:
+  - server function (`createServerFn`, POST) — รับ URL + ไฟล์ base64
+  - validate URL (ต้องเป็น http/https)
+  - `fetch(url, { method: "POST", body: JSON.stringify({...}) })` แล้วรอ response
+  - คาดหวัง response รูปแบบ `{ text: string }` (ถ้าเป็น plain text ก็ใช้เลย)
+  - return `{ text }`
+- เพิ่ม `runSelfHostedOcr({ url, ... })`:
+  - ทำงานเหมือน webhook แต่ความหมายคือ endpoint ภายใน (เช่น `http://localhost:8000/ocr`)
+  - หมายเหตุสำคัญ: server function รันบน Cloudflare Worker — `http://localhost` จาก server จะเข้าถึงเครื่องผู้ใช้ไม่ได้  
+    → จึงให้ option นี้ยิงจาก **ฝั่ง client** โดยตรงผ่าน `fetch()` ในเบราว์เซอร์ (ผู้ใช้ต้องรัน docker บนเครื่องตัวเองและเปิด CORS)
+  - ใส่ helper `runSelfHostedOcrClient()` ใน `src/lib/ocr-client.ts` ที่ทำหน้านี้ใน browser
+- ใน `OcrPanel.handleFile()`:
+  - แตก switch ตาม engine ที่เลือก เรียกฟังก์ชันที่ถูกต้อง
+  - แสดง spinner เดิมระหว่างรอ; แสดง error ที่ชัดเจน (network/CORS/timeout)
+  - บันทึก `ocr_history` เหมือนเดิม พร้อมเพิ่ม note ของ engine ใน `extracted_text` (หรือใช้ field ที่มีอยู่)
 
-**แก้ไข** ใน `OcrPanel.tsx` + `file-utils.ts`:
-- หลังจาก `renderPdfPages()` แปลง PDF เป็น PNG อยู่แล้ว → เก็บ `dataUrls` ไว้ใน state แล้วใช้แสดงเป็น preview แทน iframe
-- แสดง thumbnail หน้าแรก + ตัวเลื่อนดูหน้าอื่น (หรือ scroll list ของ canvas ทุกหน้า) ใน Card "Preview"
-- ลบ iframe blob URL ออก → ไม่มี blocking อีก
-- ภาพยังคงใช้ `<img>` ตามเดิม
+## 3) ความเข้ากันได้กับโครงสร้างข้อมูล
+- ใช้ตาราง `variable` ที่มีอยู่: `variable` = ชื่อ label, `description` = ค่าจริง (URL endpoint)
+- เพิ่ม mock 2 แถวผ่าน migration เพื่อให้มีตัวอย่างทดสอบทันที:
+  1. `WEBHOOK_TEST` — `https://webhook.site/your-test-id` (placeholder ให้ผู้ใช้แก้เองได้ภายหลัง)
+  2. `LOCAL_DOCKER` — `http://localhost:8000/ocr`
 
-## 4) UI list view โผล่ ๆ หาย ๆ ตอนสลับแท็บ
-**สาเหตุ:** Radix `Tabs` unmount เนื้อหาของแท็บที่ไม่ active. ทุกครั้งที่กดสลับกลับมา:
-- `HistoryPanel` mount ใหม่ → `useEffect` ยิง query Supabase ใหม่ → เห็น Skeleton แวบ → ข้อมูลกระพริบ
-- `OcrPanel` mount ใหม่ → state file/preview หาย แต่ระหว่าง transition ของ Tabs ยังเห็น UI เก่าค้างชั่วคราว → ดูเหมือน "UI แปลกโผล่ ๆ"
-
-**แก้ไข:**
-- ติดตั้ง `@tanstack/react-query` (ถ้ายังไม่มี wiring ใน root) — *หรือ* ใช้วิธีเบากว่า: ใส่ `forceMount` ให้ `<TabsContent>` ทุกอันใน `src/routes/index.tsx` แล้วซ่อนด้วย CSS (`hidden` attribute Radix จัดการให้) เพื่อให้ state คงอยู่ และไม่ refetch ทุกครั้ง
-- เพิ่ม cache module-level เล็ก ๆ ใน `HistoryPanel` (เก็บ `rows` ล่าสุดไว้นอก component) เพื่อให้รอบสองแสดงทันทีโดยไม่เห็น Skeleton กระพริบ; ยังคง revalidate เบื้องหลัง
-- ตรวจสอบว่า `OcrPanel` ไม่ revoke `previewUrl` ตอน unmount โดยไม่จำเป็น (เพราะใช้ `forceMount` แล้ว state จะอยู่ครบ)
+## 4) ผลลัพธ์ที่คาดหวังจาก endpoint ภายนอก
+ทั้ง webhook และ self-hosted คาดหวัง JSON response:
+```json
+{ "text": "extracted text here" }
+```
+ถ้า response เป็น plain text ก็จะนำมาแสดงตรง ๆ (พยายาม parse JSON ก่อน, ตกลง fallback เป็น text)
 
 ---
 
-## ไฟล์ที่จะแก้
-- `src/components/variable/VariablePanel.tsx` — เปลี่ยนเป็น card list 2 บรรทัด
-- `src/components/ocr/OcrPanel.tsx` — เพิ่มคำอธิบาย OCR, ใช้ PNG ที่ render แล้วเป็น preview แทน iframe
-- `src/components/history/HistoryPanel.tsx` — เพิ่ม module cache กัน flicker
-- `src/routes/index.tsx` — `forceMount` บน `TabsContent` ทั้ง 3 แท็บ
+## ไฟล์ที่จะแก้/เพิ่ม
+- `src/components/ocr/OcrPanel.tsx` — UI เลือก engine + variable dropdown + dispatch ตาม engine
+- `src/components/ocr/EngineSelector.tsx` *(ใหม่)* — ส่วนเลือก engine + variable
+- `src/lib/ocr.functions.ts` — เพิ่ม `runWebhookOcr` (server-side fetch)
+- `src/lib/ocr-client.ts` *(ใหม่)* — `runSelfHostedOcrClient` (browser-side fetch ไปยัง localhost)
+- migration เพิ่ม mock 2 rows ใน `variable`
 
-ไม่มีการเปลี่ยน schema, RLS, หรือ server function — เป็นงานฝั่ง frontend ล้วน
+ไม่ต้องเปลี่ยน schema, RLS, หรือ secret — endpoint URL เก็บอยู่ใน `description` ของตัวแปร
