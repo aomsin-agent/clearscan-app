@@ -57,3 +57,53 @@ export const runOcr = createServerFn({ method: "POST" })
     const text: string = json?.choices?.[0]?.message?.content ?? "";
     return { text };
   });
+
+/**
+ * Sends file payload to a user-supplied webhook URL and waits for `{ text }`
+ * (or plain text body) response. Runs server-side to avoid browser CORS limits.
+ */
+const WebhookSchema = z.object({
+  url: z.string().url(),
+  fileName: z.string(),
+  fileType: z.string(),
+  fileSize: z.number(),
+  fileBase64: z.string().min(20),
+  images: z.array(z.string().min(20)).min(1).max(20),
+});
+
+export const runWebhookOcr = createServerFn({ method: "POST" })
+  .inputValidator((input) => WebhookSchema.parse(input))
+  .handler(async ({ data }) => {
+    if (!/^https?:\/\//i.test(data.url)) {
+      throw new Error("Webhook URL must start with http(s)://");
+    }
+
+    const res = await fetch(data.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: data.fileName,
+        fileType: data.fileType,
+        fileSize: data.fileSize,
+        fileBase64: data.fileBase64,
+        images: data.images,
+      }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      console.error("Webhook error", res.status, txt);
+      throw new Error(`Webhook returned ${res.status}`);
+    }
+
+    const ct = res.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      const json = await res.json();
+      const text: string =
+        typeof json === "string"
+          ? json
+          : (json?.text ?? json?.result ?? json?.data ?? JSON.stringify(json));
+      return { text };
+    }
+    return { text: await res.text() };
+  });

@@ -1,0 +1,1 @@
+INSERT INTO public.variable (variable, description) VALUES ('WEBHOOK_TEST', 'https://webhook.site/your-test-id'), ('LOCAL_DOCKER', 'http://localhost:8000/ocr');
