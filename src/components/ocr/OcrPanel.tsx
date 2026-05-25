@@ -13,6 +13,7 @@ import {
   Webhook,
   Server,
   RefreshCw,
+  Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -286,50 +287,99 @@ export function OcrPanel() {
       </div>
 
       {needsVariable && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">Endpoint variable</Label>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 text-xs"
-              onClick={loadVariables}
-              disabled={varsLoading}
-            >
-              <RefreshCw className={`h-3 w-3 ${varsLoading ? "animate-spin" : ""}`} /> Refresh
-            </Button>
+        <div className="overflow-hidden rounded-xl border bg-card">
+          <div className="space-y-4 p-4">
+            <div>
+              <Label className="text-sm font-semibold text-foreground">Endpoint Variable</Label>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Select a variable containing your destination URL.
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Select value={selectedVarId} onValueChange={setSelectedVarId}>
+                  <SelectTrigger className="h-11 bg-background">
+                    <SelectValue
+                      placeholder={
+                        variables.length === 0
+                          ? "No variables — add one in the Variables tab"
+                          : "Select a variable…"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {variables.map((v) => (
+                      <SelectItem
+                        key={v.var_id}
+                        value={v.var_id}
+                        disabled={!v.description?.trim()}
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium">{v.variable ?? "(unnamed)"}</span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {v.description?.trim() || "no URL set"}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="group h-11 w-11 shrink-0"
+                onClick={loadVariables}
+                disabled={varsLoading}
+                title="Refresh variables"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${
+                    varsLoading ? "animate-spin" : ""
+                  }`}
+                />
+              </Button>
+            </div>
+
+            <div className="rounded-lg border bg-muted/40 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Current Value
+                </span>
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    selectedVar?.description?.trim()
+                      ? "bg-emerald-500"
+                      : "bg-muted-foreground/40"
+                  }`}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded border bg-background text-muted-foreground">
+                  <Link2 className="h-3.5 w-3.5" />
+                </div>
+                {selectedVar?.description?.trim() ? (
+                  <code className="break-all font-mono text-xs font-medium text-primary">
+                    {selectedVar.description}
+                  </code>
+                ) : (
+                  <span className="text-xs italic text-muted-foreground">
+                    No variable selected
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-          <Select value={selectedVarId} onValueChange={setSelectedVarId}>
-            <SelectTrigger>
-              <SelectValue
-                placeholder={
-                  variables.length === 0 ? "No variables — add one in the Variables tab" : "Select a variable…"
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {variables.map((v) => (
-                <SelectItem key={v.var_id} value={v.var_id} disabled={!v.description?.trim()}>
-                  <div className="flex flex-col">
-                    <span className="font-medium">{v.variable ?? "(unnamed)"}</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {v.description?.trim() || "no URL set"}
-                    </span>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            The variable's <span className="font-medium">description</span> is used as the endpoint URL.
-            Manage variables in the Variables tab.
-          </p>
-          {selectedVar && (
-            <p className="truncate rounded-md bg-muted/40 px-2 py-1 font-mono text-xs text-foreground">
-              → {selectedVar.description}
-            </p>
-          )}
+
+          <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2.5">
+            <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="text-[11px] text-muted-foreground">
+              Manage variables in the{" "}
+              <span className="font-medium text-foreground">Variables</span> tab
+            </span>
+          </div>
         </div>
       )}
     </Card>
