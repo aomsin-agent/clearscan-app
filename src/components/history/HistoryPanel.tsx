@@ -25,8 +25,11 @@ interface HistoryRow {
   created_at: string;
 }
 
+// Module-level cache prevents skeleton flicker when switching tabs
+let historyCache: HistoryRow[] | null = null;
+
 export function HistoryPanel() {
-  const [rows, setRows] = useState<HistoryRow[] | null>(null);
+  const [rows, setRows] = useState<HistoryRow[] | null>(historyCache);
   const [selected, setSelected] = useState<HistoryRow | null>(null);
 
   useEffect(() => {
@@ -40,15 +43,17 @@ export function HistoryPanel() {
       if (!active) return;
       if (error) {
         toast.error("Failed to load history");
-        setRows([]);
+        if (!historyCache) setRows([]);
       } else {
-        setRows(data ?? []);
+        historyCache = data ?? [];
+        setRows(historyCache);
       }
     })();
     return () => {
       active = false;
     };
   }, []);
+
 
   if (rows === null) {
     return (
