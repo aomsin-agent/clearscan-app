@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      ocr_history: {
+        Row: {
+          created_at: string
+          extracted_text: string
+          file_name: string
+          file_size: number
+          file_type: string
+          id: string
+          preview_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          extracted_text?: string
+          file_name: string
+          file_size: number
+          file_type: string
+          id?: string
+          preview_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          extracted_text?: string
+          file_name?: string
+          file_size?: number
+          file_type?: string
+          id?: string
+          preview_url?: string | null
+        }
+        Relationships: []
+      }
       variable: {
         Row: {
           created_at: string
