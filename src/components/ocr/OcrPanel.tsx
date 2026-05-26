@@ -351,7 +351,7 @@ export function OcrPanel() {
                     <SelectValue
                       placeholder={
                         variables.length === 0
-                          ? "No variables — add one in the Variables tab"
+                          ? `No "${ENGINE_CATEGORY[engine]}" variables — add one in the Variables tab`
                           : "Select a variable…"
                       }
                     />
