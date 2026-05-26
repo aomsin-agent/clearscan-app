@@ -44,8 +44,8 @@ import {
   renderPdfPages,
   type FileMeta,
 } from "@/lib/file-utils";
-import { runOcr, runWebhookOcr } from "@/lib/ocr.functions";
-import { runSelfHostedOcr } from "@/lib/ocr-client";
+import { runOcr, runWebhookOcr, testWebhook } from "@/lib/ocr.functions";
+import { runSelfHostedOcr, testSelfHostedEndpoint } from "@/lib/ocr-client";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 
