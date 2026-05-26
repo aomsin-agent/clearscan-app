@@ -304,6 +304,7 @@ export function OcrPanel() {
                 disabled={submitting}
                 onClick={() => {
                   setEngine(id);
+                  setSelectedVarId("");
                   reset();
                 }}
                 className={`flex items-start gap-3 rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
