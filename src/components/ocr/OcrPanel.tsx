@@ -17,8 +17,10 @@ import {
   Plug,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Settings,
   ChevronDown,
+  PlayCircle,
 } from "lucide-react";
 import {
   Collapsible,
