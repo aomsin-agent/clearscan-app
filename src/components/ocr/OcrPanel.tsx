@@ -17,8 +17,10 @@ import {
   Plug,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Settings,
   ChevronDown,
+  PlayCircle,
 } from "lucide-react";
 import {
   Collapsible,
@@ -90,10 +92,12 @@ export function OcrPanel() {
   const [status, setStatus] = useState<Status>("idle");
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
-  // Intention: hard UI lock during an in-flight request. `status` already
-  // tracks the lifecycle for display, but `submitting` is the authoritative
-  // input-disabled flag that prevents duplicate network calls / race
-  // conditions while the connection is held open.
+  // Response from webhook / python-api (kind=none = not yet validated)
+  type ResponseKind = "none" | "success" | "bad-format" | "error";
+  const [responseKind, setResponseKind] = useState<ResponseKind>("none");
+  const [responseRaw, setResponseRaw] = useState("");
+  const [responseMessage, setResponseMessage] = useState("");
+  // Intention: hard UI lock during an in-flight request.
   const [submitting, setSubmitting] = useState(false);
 
   const [engine, setEngine] = useState<Engine>("lovable");
@@ -184,73 +188,131 @@ export function OcrPanel() {
     setText("");
     setStatus("idle");
     setCopied(false);
+    setResponseKind("none");
+    setResponseRaw("");
+    setResponseMessage("");
   }, [previewUrl]);
 
-  const handleSubmit = useCallback(
+  // Step 1: load file locally (preview + meta). Does NOT call any endpoint.
+  const loadFile = useCallback(
     async (f: File) => {
-      // Intention: clear any previous run, then immediately flip the UI
-      // into a locked "submitting" state so the dropzone and action
-      // buttons cannot fire a second request while this one is in flight.
+      reset();
+      setFile(f);
+      setSubmitting(true);
+      try {
+        if (f.type.startsWith("image/")) {
+          setPreviewUrl(URL.createObjectURL(f));
+          const m = await readImageMeta(f);
+          setMeta(m);
+        } else if (f.type === "application/pdf") {
+          const { dataUrls, pageCount } = await renderPdfPages(f);
+          setMeta({ kind: "pdf", pageCount });
+          setPdfPages(dataUrls);
+        } else {
+          throw new Error("Unsupported file type");
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to load file";
+        toast.error(msg);
+        setStatus("error");
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [reset],
+  );
+
+  // Step 2 (webhook / selfhosted): actually send the file to the endpoint.
+  const runValidate = useCallback(async () => {
+    if (!file) return;
+    if (engine === "lovable") return;
+    const url = selectedVar?.description?.trim();
+    if (!url) {
+      toast.error("Select a variable that contains the endpoint URL");
+      return;
+    }
+
+    setStatus("processing");
+    setSubmitting(true);
+    setText("");
+    setResponseKind("none");
+    setResponseRaw("");
+    setResponseMessage("");
+
+    try {
+      let result;
+      if (engine === "webhook") {
+        const fileBase64 = await fileToDataUrl(file);
+        result = await runWebhookFn({
+          data: {
+            url,
+            fileName: file.name,
+            fileType: file.type || "application/octet-stream",
+            fileSize: file.size,
+            fileBase64,
+          },
+        });
+      } else {
+        result = await runSelfHostedOcr({ url, file });
+      }
+
+      setResponseKind(result.kind);
+      setResponseRaw(result.raw);
+      setResponseMessage(result.message);
+
+      if (result.kind === "success") {
+        setText(result.markdown);
+        setViewMode("preview");
+        setStatus("done");
+        await supabase.from("ocr_history").insert({
+          file_name: file.name,
+          file_type: file.type || "unknown",
+          file_size: file.size,
+          extracted_text: `[${ENGINE_LABEL[engine]}]\n\n${result.markdown}`,
+        });
+      } else {
+        setStatus("done");
+        if (result.kind === "error") toast.error(result.message);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Request failed";
+      setResponseKind("error");
+      setResponseMessage(msg);
+      setStatus("error");
+      toast.error(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [file, engine, selectedVar, runWebhookFn]);
+
+  // Lovable engine: auto-extract on drop (legacy behavior).
+  const runLovableExtract = useCallback(
+    async (f: File) => {
       reset();
       setFile(f);
       setStatus("processing");
       setSubmitting(true);
 
       try {
-        // Intention: render a local preview for the user regardless of
-        // which engine we ship the bytes to. For PDFs we also rasterize
-        // pages because the Lovable AI engine consumes images.
         let lovableImages: string[] = [];
         if (f.type.startsWith("image/")) {
           setPreviewUrl(URL.createObjectURL(f));
           const m = await readImageMeta(f);
           setMeta(m);
-          if (engine === "lovable") {
-            lovableImages = [await fileToDataUrl(f)];
-          }
+          lovableImages = [await fileToDataUrl(f)];
         } else if (f.type === "application/pdf") {
           const { dataUrls, pageCount } = await renderPdfPages(f);
           setMeta({ kind: "pdf", pageCount });
           setPdfPages(dataUrls);
-          if (engine === "lovable") {
-            lovableImages = dataUrls;
-          }
+          lovableImages = dataUrls;
         } else {
           throw new Error("Unsupported file type");
         }
 
-        let result: { text: string };
-        if (engine === "lovable") {
-          result = await runOcrFn({ data: { images: lovableImages } });
-        } else if (engine === "webhook") {
-          // Server-side multipart fan-out. We base64-encode ONCE just to
-          // cross the TanStack RPC boundary (which can't transport File);
-          // the server decodes it and forwards raw bytes as multipart, so
-          // the webhook never sees base64.
-          const url = selectedVar?.description?.trim();
-          if (!url) throw new Error("Select a variable that contains the endpoint URL");
-          const fileBase64 = await fileToDataUrl(f);
-          result = await runWebhookFn({
-            data: {
-              url,
-              fileName: f.name,
-              fileType: f.type || "application/octet-stream",
-              fileSize: f.size,
-              fileBase64,
-            },
-          });
-        } else {
-          // Self-hosted Docker path — POST multipart/form-data straight
-          // from the browser so the request can reach http://localhost.
-          // Expected response: { status: "success", markdown: "..." }
-          const url = selectedVar?.description?.trim();
-          if (!url) throw new Error("Select a variable that contains BACKEND_API_URL");
-          result = await runSelfHostedOcr({ url, file: f });
-        }
-
-        // Intention: render extracted text and persist a history entry.
+        const result = await runOcrFn({ data: { images: lovableImages } });
         setText(result.text);
         setStatus("done");
+        setResponseKind("success");
 
         await supabase.from("ocr_history").insert({
           file_name: f.name,
@@ -264,12 +326,10 @@ export function OcrPanel() {
         toast.error(msg);
         setStatus("error");
       } finally {
-        // Intention: always release the UI lock, even on error, so the
-        // user can retry without reloading the page.
         setSubmitting(false);
       }
     },
-    [reset, runOcrFn, runWebhookFn, engine, selectedVar],
+    [reset, runOcrFn, engine],
   );
 
   const onDrop = useCallback(
@@ -279,10 +339,14 @@ export function OcrPanel() {
         toast.error("Select a variable first");
         return;
       }
-      if (accepted[0]) handleSubmit(accepted[0]);
+      if (!accepted[0]) return;
+      if (engine === "lovable") runLovableExtract(accepted[0]);
+      else loadFile(accepted[0]);
     },
-    [handleSubmit, canRun, submitting],
+    [engine, runLovableExtract, loadFile, canRun, submitting],
   );
+
+
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -695,7 +759,7 @@ export function OcrPanel() {
                 <button
                   type="button"
                   onClick={() => setViewMode("preview")}
-                  disabled={status !== "done" || !text}
+                  disabled={status !== "done" && responseKind === "none"}
                   className={`rounded px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
                     viewMode === "preview"
                       ? "bg-primary text-primary-foreground"
@@ -707,7 +771,7 @@ export function OcrPanel() {
                 <button
                   type="button"
                   onClick={() => setViewMode("raw")}
-                  disabled={status !== "done" || !text}
+                  disabled={status !== "done" && responseKind === "none"}
                   className={`rounded px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
                     viewMode === "raw"
                       ? "bg-primary text-primary-foreground"
@@ -720,7 +784,7 @@ export function OcrPanel() {
               <Button
                 size="sm"
                 variant={copied ? "secondary" : "default"}
-                disabled={status !== "done" || !text}
+                disabled={responseKind !== "success" || !text}
                 onClick={copy}
               >
                 {copied ? (
@@ -736,33 +800,124 @@ export function OcrPanel() {
             </div>
           </div>
           <div className="relative flex-1 p-4">
+            {/* Processing spinner */}
             {status === "processing" && (
               <div className="flex h-[440px] flex-col items-center justify-center gap-4">
                 <Spinner />
                 <p className="text-sm text-muted-foreground">
-                  {engine === "selfhosted"
-                    ? "Uploading to self-hosted container and waiting for OCR result…"
-                    : `Waiting for response from ${ENGINE_LABEL[engine]}…`}
+                  {engine === "lovable"
+                    ? `Waiting for response from ${ENGINE_LABEL[engine]}…`
+                    : engine === "selfhosted"
+                      ? "Uploading to self-hosted container and waiting for OCR result…"
+                      : `Sending file to ${ENGINE_LABEL[engine]}…`}
                 </p>
               </div>
             )}
-            {status !== "processing" && viewMode === "preview" && text && (
-              <div className="prose prose-sm dark:prose-invert h-[460px] max-w-none overflow-auto rounded-md border bg-background p-4">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+
+            {/* Pre-validate state for webhook / selfhosted */}
+            {status !== "processing" &&
+              engine !== "lovable" &&
+              responseKind === "none" && (
+                <div className="flex h-[460px] flex-col items-center justify-center gap-4 rounded-md border border-dashed bg-muted/20 p-6 text-center">
+                  <div
+                    className="flex h-14 w-14 items-center justify-center rounded-2xl text-primary-foreground"
+                    style={{ background: "var(--gradient-primary)" }}
+                  >
+                    <PlayCircle className="h-7 w-7" />
+                  </div>
+                  <div>
+                    <p className="text-base font-semibold text-foreground">Ready to validate</p>
+                    <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                      File loaded. Click <span className="font-medium">Validate</span> to send it to{" "}
+                      <span className="font-medium text-foreground">{ENGINE_LABEL[engine]}</span> and
+                      see the response.
+                    </p>
+                  </div>
+                  <Button
+                    size="lg"
+                    onClick={runValidate}
+                    disabled={!canRun || submitting}
+                    className="shadow-md"
+                  >
+                    <PlayCircle className="mr-2 h-4 w-4" />
+                    Validate
+                  </Button>
+                </div>
+              )}
+
+            {/* Done: Preview pane */}
+            {status !== "processing" && responseKind !== "none" && viewMode === "preview" && (
+              <div className="flex h-[460px] flex-col gap-3">
+                {responseKind === "success" && text && (
+                  <div className="prose prose-sm dark:prose-invert max-w-none flex-1 overflow-auto rounded-md border bg-background p-4">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                  </div>
+                )}
+                {responseKind === "bad-format" && (
+                  <div className="flex flex-1 flex-col gap-2 overflow-auto rounded-md border border-amber-500/40 bg-amber-500/5 p-4">
+                    <div className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="text-sm font-semibold">Response format invalid</div>
+                    </div>
+                    <p className="text-sm text-foreground">{responseMessage}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Switch to <span className="font-medium">Raw</span> to inspect the full
+                      response. See{" "}
+                      <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                        docs/OCR_BACKEND_CONTRACT.md
+                      </code>{" "}
+                      for the expected shape.
+                    </p>
+                  </div>
+                )}
+                {responseKind === "error" && (
+                  <div className="flex flex-1 flex-col gap-2 overflow-auto rounded-md border border-destructive/40 bg-destructive/5 p-4">
+                    <div className="flex items-start gap-2 text-destructive">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="text-sm font-semibold">Request failed</div>
+                    </div>
+                    <p className="text-sm text-foreground">{responseMessage}</p>
+                    {responseRaw && (
+                      <p className="text-xs text-muted-foreground">
+                        The endpoint replied with a body — switch to{" "}
+                        <span className="font-medium">Raw</span> to view it.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
-            {status !== "processing" && (viewMode === "raw" || !text) && (
+
+            {/* Done: Raw pane */}
+            {status !== "processing" && responseKind !== "none" && viewMode === "raw" && (
               <Textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={
-                  status === "error"
-                    ? "Something went wrong. Try another file or check the endpoint."
-                    : "Extracted text will appear here."
+                value={
+                  responseKind === "success"
+                    ? responseRaw || text
+                    : responseRaw || responseMessage
                 }
-                className="h-[460px] resize-none font-mono text-sm"
+                readOnly
+                placeholder="No response body."
+                className="h-[460px] resize-none font-mono text-xs"
               />
             )}
+
+            {/* Validate again button */}
+            {status !== "processing" &&
+              engine !== "lovable" &&
+              responseKind !== "none" && (
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={runValidate}
+                    disabled={!canRun || submitting}
+                  >
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    Validate again
+                  </Button>
+                </div>
+              )}
           </div>
         </Card>
       </div>

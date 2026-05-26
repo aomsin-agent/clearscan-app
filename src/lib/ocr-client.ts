@@ -40,12 +40,26 @@ function extractMarkdown(payload: unknown): string {
   return JSON.stringify(payload, null, 2);
 }
 
+export type SelfHostedResult = {
+  kind: "success" | "bad-format" | "error";
+  markdown: string;
+  raw: string;
+  message: string;
+  httpStatus: number;
+};
+
 export async function runSelfHostedOcr(params: {
   url: string;
   file: File;
-}): Promise<{ text: string }> {
+}): Promise<SelfHostedResult> {
   if (!/^https?:\/\//i.test(params.url)) {
-    throw new Error("BACKEND_API_URL must start with http(s)://");
+    return {
+      kind: "error",
+      markdown: "",
+      raw: "",
+      message: "BACKEND_API_URL must start with http(s)://",
+      httpStatus: 0,
+    };
   }
 
   const form = new FormData();
@@ -58,23 +72,55 @@ export async function runSelfHostedOcr(params: {
   try {
     res = await fetch(params.url, { method: "POST", body: form });
   } catch {
-    throw new Error(
-      `Could not reach ${params.url}. Check that the container is running and CORS is enabled for this origin.`,
-    );
+    return {
+      kind: "error",
+      markdown: "",
+      raw: "",
+      message: `Could not reach ${params.url}. Check that the container is running and CORS is enabled for this origin.`,
+      httpStatus: 0,
+    };
   }
 
+  const raw = await res.text();
+
   if (!res.ok) {
-    throw new Error(`Self-hosted endpoint returned ${res.status}`);
+    return {
+      kind: "error",
+      markdown: "",
+      raw,
+      message: `Self-hosted endpoint returned ${res.status}`,
+      httpStatus: res.status,
+    };
   }
 
   const ct = res.headers.get("content-type") ?? "";
   if (!ct.includes("application/json")) {
-    return { text: await res.text() };
+    if (raw.trim().length === 0) {
+      return {
+        kind: "bad-format",
+        markdown: "",
+        raw,
+        message: "Endpoint returned an empty body.",
+        httpStatus: res.status,
+      };
+    }
+    return { kind: "success", markdown: raw, raw, message: "", httpStatus: res.status };
   }
 
-  const json = (await res.json().catch(() => null)) as unknown;
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    return {
+      kind: "bad-format",
+      markdown: "",
+      raw,
+      message:
+        'Endpoint received the file, but response is not valid JSON. Expected `{ status: "success", markdown: "…" }`.',
+      httpStatus: res.status,
+    };
+  }
 
-  // Honor explicit non-success status
   if (
     json &&
     typeof json === "object" &&
@@ -86,12 +132,28 @@ export async function runSelfHostedOcr(params: {
       (json as Record<string, unknown>).error ??
       (json as Record<string, unknown>).message ??
       "Backend reported a non-success status";
-    throw new Error(String(errMsg));
+    return {
+      kind: "error",
+      markdown: "",
+      raw,
+      message: String(errMsg),
+      httpStatus: res.status,
+    };
   }
 
-  const text = extractMarkdown(json);
-  if (!text) throw new Error("Backend response did not include a markdown field");
-  return { text };
+  const md = extractMarkdown(json);
+  const recognised = md && md !== JSON.stringify(json, null, 2);
+  if (!recognised) {
+    return {
+      kind: "bad-format",
+      markdown: "",
+      raw,
+      message:
+        'Endpoint received the file, but response format is invalid. Expected `{ status: "success", markdown: "…" }`.',
+      httpStatus: res.status,
+    };
+  }
+  return { kind: "success", markdown: md, raw, message: "", httpStatus: res.status };
 }
 
 /**
