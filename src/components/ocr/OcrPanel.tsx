@@ -93,17 +93,20 @@ export function OcrPanel() {
 
   const loadVariables = useCallback(async () => {
     setVarsLoading(true);
-    const { data, error } = await supabase
+    const requiredCategory = ENGINE_CATEGORY[engine];
+    let query = supabase
       .from("variable")
-      .select("var_id,variable,description")
+      .select("var_id,variable,description,category")
       .order("created_at", { ascending: false });
+    if (requiredCategory) query = query.eq("category", requiredCategory);
+    const { data, error } = await query;
     setVarsLoading(false);
     if (error) {
       toast.error("Failed to load variables");
       return;
     }
     setVariables(data ?? []);
-  }, []);
+  }, [engine]);
 
   useEffect(() => {
     loadVariables();
