@@ -363,12 +363,7 @@ export function OcrPanel() {
                         value={v.var_id}
                         disabled={!v.description?.trim()}
                       >
-                        <div className="flex flex-col">
-                          <span className="font-medium">{v.variable ?? "(unnamed)"}</span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {v.description?.trim() || "no URL set"}
-                          </span>
-                        </div>
+                        {v.variable ?? "(unnamed)"}
                       </SelectItem>
                     ))}
                   </SelectContent>
