@@ -14,6 +14,9 @@ import {
   Server,
   RefreshCw,
   Link2,
+  Plug,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -41,8 +44,8 @@ import {
   renderPdfPages,
   type FileMeta,
 } from "@/lib/file-utils";
-import { runOcr, runWebhookOcr } from "@/lib/ocr.functions";
-import { runSelfHostedOcr } from "@/lib/ocr-client";
+import { runOcr, runWebhookOcr, testWebhook } from "@/lib/ocr.functions";
+import { runSelfHostedOcr, testSelfHostedEndpoint } from "@/lib/ocr-client";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -90,6 +93,13 @@ export function OcrPanel() {
 
   const runOcrFn = useServerFn(runOcr);
   const runWebhookFn = useServerFn(runWebhookOcr);
+  const testWebhookFn = useServerFn(testWebhook);
+
+  type TestResult = { ok: boolean; status: number; latencyMs: number; error: string | null };
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+
+
 
   const loadVariables = useCallback(async () => {
     setVarsLoading(true);
@@ -115,6 +125,34 @@ export function OcrPanel() {
   const selectedVar = variables.find((v) => v.var_id === selectedVarId);
   const needsVariable = engine !== "lovable";
   const canRun = !needsVariable || !!selectedVar?.description?.trim();
+
+  // Reset test result when variable/engine changes
+  useEffect(() => {
+    setTestResult(null);
+  }, [selectedVarId, engine]);
+
+  const runConnectionTest = useCallback(async () => {
+    const url = selectedVar?.description?.trim();
+    if (!url) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result =
+        engine === "webhook"
+          ? await testWebhookFn({ data: { url } })
+          : await testSelfHostedEndpoint({ url });
+      setTestResult(result);
+      if (result.ok) {
+        toast.success(`Endpoint reachable (${result.status}) in ${result.latencyMs}ms`);
+      } else {
+        toast.error(result.error ?? "Endpoint test failed");
+      }
+    } finally {
+      setTesting(false);
+    }
+  }, [engine, selectedVar, testWebhookFn]);
+
+
 
   const reset = useCallback(() => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -414,7 +452,50 @@ export function OcrPanel() {
                 )}
               </div>
             </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={runConnectionTest}
+                disabled={!selectedVar?.description?.trim() || testing || submitting}
+              >
+                {testing ? (
+                  <>
+                    <RefreshCw className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    Testing…
+                  </>
+                ) : (
+                  <>
+                    <Plug className="mr-1 h-3.5 w-3.5" />
+                    Test connection
+                  </>
+                )}
+              </Button>
+              {testResult && !testing && (
+                <div
+                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs ${
+                    testResult.ok
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      : "border-destructive/30 bg-destructive/10 text-destructive"
+                  }`}
+                >
+                  {testResult.ok ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <AlertCircle className="h-3.5 w-3.5" />
+                  )}
+                  <span className="font-medium">
+                    {testResult.ok
+                      ? `OK · ${testResult.status} · ${testResult.latencyMs}ms`
+                      : testResult.error ?? "Failed"}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
+
 
           <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2.5">
             <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

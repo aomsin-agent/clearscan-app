@@ -74,3 +74,41 @@ export async function runSelfHostedOcr(params: {
 
   return { text: json.result_markdown };
 }
+
+/**
+ * Lightweight reachability test for a self-hosted endpoint. Sends a tiny
+ * JSON probe (no file, no OCR) from the browser so it can reach localhost.
+ * Returns ok/status/latency — never throws.
+ */
+export async function testSelfHostedEndpoint(params: {
+  url: string;
+}): Promise<{ ok: boolean; status: number; latencyMs: number; error: string | null }> {
+  if (!/^https?:\/\//i.test(params.url)) {
+    return { ok: false, status: 0, latencyMs: 0, error: "URL must start with http(s)://" };
+  }
+  const started = Date.now();
+  try {
+    const res = await fetch(params.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ping: "lovable-ocr-test",
+        timestamp: new Date().toISOString(),
+      }),
+    });
+    const latencyMs = Date.now() - started;
+    return {
+      ok: res.ok,
+      status: res.status,
+      latencyMs,
+      error: res.ok ? null : `Endpoint returned ${res.status}`,
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      latencyMs: Date.now() - started,
+      error: `Could not reach ${params.url}. Check the container is running and CORS is enabled.`,
+    };
+  }
+}
