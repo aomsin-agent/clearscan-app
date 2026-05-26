@@ -488,7 +488,7 @@ export function OcrPanel() {
             </p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={reset}>
+        <Button variant="outline" size="sm" onClick={reset} disabled={submitting}>
           <X className="mr-1 h-4 w-4" />
           Clear
         </Button>
