@@ -336,7 +336,11 @@ export function OcrPanel() {
             <div>
               <Label className="text-sm font-semibold text-foreground">Endpoint Variable</Label>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Select a variable containing your destination URL.
+                Showing variables with category{" "}
+                <span className="font-mono font-medium text-foreground">
+                  {ENGINE_CATEGORY[engine]}
+                </span>
+                .
               </p>
             </div>
 
