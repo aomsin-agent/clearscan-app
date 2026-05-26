@@ -452,7 +452,50 @@ export function OcrPanel() {
                 )}
               </div>
             </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={runConnectionTest}
+                disabled={!selectedVar?.description?.trim() || testing || submitting}
+              >
+                {testing ? (
+                  <>
+                    <RefreshCw className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    Testing…
+                  </>
+                ) : (
+                  <>
+                    <Plug className="mr-1 h-3.5 w-3.5" />
+                    Test connection
+                  </>
+                )}
+              </Button>
+              {testResult && !testing && (
+                <div
+                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs ${
+                    testResult.ok
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      : "border-destructive/30 bg-destructive/10 text-destructive"
+                  }`}
+                >
+                  {testResult.ok ? (
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  ) : (
+                    <AlertCircle className="h-3.5 w-3.5" />
+                  )}
+                  <span className="font-medium">
+                    {testResult.ok
+                      ? `OK · ${testResult.status} · ${testResult.latencyMs}ms`
+                      : testResult.error ?? "Failed"}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
+
 
           <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2.5">
             <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
