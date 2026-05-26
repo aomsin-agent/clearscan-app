@@ -197,23 +197,20 @@ export function OcrPanel() {
         // Intention: render a local preview for the user regardless of
         // which engine we ship the bytes to. For PDFs we also rasterize
         // pages because the Lovable AI engine consumes images.
-        let images: string[] = [];
-        let fileBase64 = "";
+        let lovableImages: string[] = [];
         if (f.type.startsWith("image/")) {
           setPreviewUrl(URL.createObjectURL(f));
           const m = await readImageMeta(f);
           setMeta(m);
-          if (engine !== "selfhosted") {
-            fileBase64 = await fileToDataUrl(f);
-            images = [fileBase64];
+          if (engine === "lovable") {
+            lovableImages = [await fileToDataUrl(f)];
           }
         } else if (f.type === "application/pdf") {
           const { dataUrls, pageCount } = await renderPdfPages(f);
           setMeta({ kind: "pdf", pageCount });
           setPdfPages(dataUrls);
-          if (engine !== "selfhosted") {
-            fileBase64 = await fileToDataUrl(f);
-            images = dataUrls;
+          if (engine === "lovable") {
+            lovableImages = dataUrls;
           }
         } else {
           throw new Error("Unsupported file type");
@@ -221,31 +218,28 @@ export function OcrPanel() {
 
         let result: { text: string };
         if (engine === "lovable") {
-          // Intention: managed Lovable AI Gateway path — server function
-          // owns the Gemini call.
-          result = await runOcrFn({ data: { images } });
+          result = await runOcrFn({ data: { images: lovableImages } });
         } else if (engine === "webhook") {
-          // Intention: server-side fan-out to the user's webhook URL.
+          // Server-side multipart fan-out. We base64-encode ONCE just to
+          // cross the TanStack RPC boundary (which can't transport File);
+          // the server decodes it and forwards raw bytes as multipart, so
+          // the webhook never sees base64.
           const url = selectedVar?.description?.trim();
           if (!url) throw new Error("Select a variable that contains the endpoint URL");
+          const fileBase64 = await fileToDataUrl(f);
           result = await runWebhookFn({
             data: {
               url,
               fileName: f.name,
-              fileType: f.type || "unknown",
+              fileType: f.type || "application/octet-stream",
               fileSize: f.size,
               fileBase64,
-              images,
             },
           });
         } else {
-          // Intention: self-hosted Docker path. The selected `variable`
-          // row's `description` column holds BACKEND_API_URL. We POST a
-          // multipart/form-data payload directly from the browser so the
-          // request can reach http://localhost, then `await` the
-          // synchronous response — the Python container holds the
-          // connection open until OCR finishes and replies with
-          // { status: "success", result_markdown: "..." }.
+          // Self-hosted Docker path — POST multipart/form-data straight
+          // from the browser so the request can reach http://localhost.
+          // Expected response: { status: "success", markdown: "..." }
           const url = selectedVar?.description?.trim();
           if (!url) throw new Error("Select a variable that contains BACKEND_API_URL");
           result = await runSelfHostedOcr({ url, file: f });
