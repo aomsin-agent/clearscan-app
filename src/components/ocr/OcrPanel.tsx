@@ -688,24 +688,52 @@ export function OcrPanel() {
         </Card>
 
         <Card className="flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
+          <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
             <span className="text-sm font-medium text-muted-foreground">Extracted text</span>
-            <Button
-              size="sm"
-              variant={copied ? "secondary" : "default"}
-              disabled={status !== "done" || !text}
-              onClick={copy}
-            >
-              {copied ? (
-                <>
-                  <Check className="mr-1 h-4 w-4" /> Copied
-                </>
-              ) : (
-                <>
-                  <Copy className="mr-1 h-4 w-4" /> Copy
-                </>
-              )}
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <div className="flex rounded-md border bg-background p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("preview")}
+                  disabled={status !== "done" || !text}
+                  className={`rounded px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
+                    viewMode === "preview"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("raw")}
+                  disabled={status !== "done" || !text}
+                  className={`rounded px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
+                    viewMode === "raw"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Raw
+                </button>
+              </div>
+              <Button
+                size="sm"
+                variant={copied ? "secondary" : "default"}
+                disabled={status !== "done" || !text}
+                onClick={copy}
+              >
+                {copied ? (
+                  <>
+                    <Check className="mr-1 h-4 w-4" /> Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="mr-1 h-4 w-4" /> Copy
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
           <div className="relative flex-1 p-4">
             {status === "processing" && (
@@ -718,7 +746,12 @@ export function OcrPanel() {
                 </p>
               </div>
             )}
-            {status !== "processing" && (
+            {status !== "processing" && viewMode === "preview" && text && (
+              <div className="prose prose-sm dark:prose-invert h-[460px] max-w-none overflow-auto rounded-md border bg-background p-4">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+              </div>
+            )}
+            {status !== "processing" && (viewMode === "raw" || !text) && (
               <Textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
