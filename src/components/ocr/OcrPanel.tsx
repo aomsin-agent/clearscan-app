@@ -17,7 +17,14 @@ import {
   Plug,
   CheckCircle2,
   AlertCircle,
+  Settings,
+  ChevronDown,
 } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -98,6 +105,7 @@ export function OcrPanel() {
   type TestResult = { ok: boolean; status: number; latencyMs: number; error: string | null };
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(true);
 
 
 
@@ -126,10 +134,19 @@ export function OcrPanel() {
   const needsVariable = engine !== "lovable";
   const canRun = !needsVariable || !!selectedVar?.description?.trim();
 
-  // Reset test result when variable/engine changes
+  // Reset test result + reopen settings when variable/engine changes
   useEffect(() => {
     setTestResult(null);
+    setSettingsOpen(true);
   }, [selectedVarId, engine]);
+
+  // Auto-collapse settings after successful test
+  useEffect(() => {
+    if (testResult?.ok) {
+      const t = setTimeout(() => setSettingsOpen(false), 600);
+      return () => clearTimeout(t);
+    }
+  }, [testResult]);
 
   const runConnectionTest = useCallback(async () => {
     const url = selectedVar?.description?.trim();
@@ -369,142 +386,177 @@ export function OcrPanel() {
       </div>
 
       {needsVariable && (
-        <div className="overflow-hidden rounded-xl border bg-card">
-          <div className="space-y-4 p-4">
-            <div>
-              <Label className="text-sm font-semibold text-foreground">Endpoint Variable</Label>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Showing variables with category{" "}
-                <span className="font-mono font-medium text-foreground">
-                  {ENGINE_CATEGORY[engine]}
-                </span>
-                .
-              </p>
-            </div>
-
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <Select value={selectedVarId} onValueChange={setSelectedVarId} disabled={submitting}>
-                  <SelectTrigger className="h-11 bg-background">
-                    <SelectValue
-                      placeholder={
-                        variables.length === 0
-                          ? `No "${ENGINE_CATEGORY[engine]}" variables — add one in the Variables tab`
-                          : "Select a variable…"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {variables.map((v) => (
-                      <SelectItem
-                        key={v.var_id}
-                        value={v.var_id}
-                        disabled={!v.description?.trim()}
-                      >
-                        {v.variable ?? "(unnamed)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        <Collapsible
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          className="overflow-hidden rounded-xl border bg-card"
+        >
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-accent/30"
+            >
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <Settings className="h-3.5 w-3.5" />
+                </div>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="text-sm font-semibold text-foreground">
+                    Endpoint settings
+                  </span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                    {ENGINE_CATEGORY[engine]}
+                  </span>
+                </div>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="group h-11 w-11 shrink-0"
-                onClick={loadVariables}
-                disabled={varsLoading || submitting}
-                title="Refresh variables"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${
-                    varsLoading ? "animate-spin" : ""
+              <div className="flex shrink-0 items-center gap-2">
+                {!settingsOpen && (
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        testResult?.ok
+                          ? "bg-emerald-500"
+                          : testResult && !testResult.ok
+                            ? "bg-destructive"
+                            : selectedVar?.description?.trim()
+                              ? "bg-amber-500"
+                              : "bg-muted-foreground/40"
+                      }`}
+                    />
+                    <span className="max-w-[160px] truncate font-medium text-foreground">
+                      {selectedVar?.variable ?? "Not selected"}
+                    </span>
+                  </div>
+                )}
+                <ChevronDown
+                  className={`h-4 w-4 text-muted-foreground transition-transform ${
+                    settingsOpen ? "rotate-180" : ""
                   }`}
                 />
-              </Button>
-            </div>
+              </div>
+            </button>
+          </CollapsibleTrigger>
 
-            <div className="rounded-lg border bg-muted/40 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Current Value
-                </span>
+          <CollapsibleContent>
+            <div className="space-y-3 border-t px-4 py-3">
+              {/* Action row: dropdown + refresh + test + status */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-[200px] flex-1">
+                  <Select
+                    value={selectedVarId}
+                    onValueChange={setSelectedVarId}
+                    disabled={submitting}
+                  >
+                    <SelectTrigger className="h-10 bg-background">
+                      <SelectValue
+                        placeholder={
+                          variables.length === 0
+                            ? `No "${ENGINE_CATEGORY[engine]}" variables`
+                            : "Select a variable…"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {variables.map((v) => (
+                        <SelectItem
+                          key={v.var_id}
+                          value={v.var_id}
+                          disabled={!v.description?.trim()}
+                        >
+                          {v.variable ?? "(unnamed)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="group h-10 w-10 shrink-0"
+                  onClick={loadVariables}
+                  disabled={varsLoading || submitting}
+                  title="Refresh variables"
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${
+                      varsLoading ? "animate-spin" : ""
+                    }`}
+                  />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-10 shrink-0"
+                  onClick={runConnectionTest}
+                  disabled={!selectedVar?.description?.trim() || testing || submitting}
+                >
+                  {testing ? (
+                    <>
+                      <RefreshCw className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      Testing…
+                    </>
+                  ) : (
+                    <>
+                      <Plug className="mr-1 h-3.5 w-3.5" />
+                      Test
+                    </>
+                  )}
+                </Button>
+                {testResult && !testing && (
+                  <div
+                    className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
+                      testResult.ok
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        : "border-destructive/30 bg-destructive/10 text-destructive"
+                    }`}
+                  >
+                    {testResult.ok ? (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    ) : (
+                      <AlertCircle className="h-3.5 w-3.5" />
+                    )}
+                    <span className="font-medium">
+                      {testResult.ok
+                        ? `${testResult.status} · ${testResult.latencyMs}ms`
+                        : testResult.error ?? "Failed"}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Current value (compact, inline) */}
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-2.5 py-2">
+                <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                {selectedVar?.description?.trim() ? (
+                  <code className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-primary">
+                    {selectedVar.description}
+                  </code>
+                ) : (
+                  <span className="flex-1 text-xs italic text-muted-foreground">
+                    No variable selected
+                  </span>
+                )}
                 <span
-                  className={`h-2 w-2 rounded-full ${
+                  className={`h-2 w-2 shrink-0 rounded-full ${
                     selectedVar?.description?.trim()
                       ? "bg-emerald-500"
                       : "bg-muted-foreground/40"
                   }`}
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded border bg-background text-muted-foreground">
-                  <Link2 className="h-3.5 w-3.5" />
-                </div>
-                {selectedVar?.description?.trim() ? (
-                  <code className="break-all font-mono text-xs font-medium text-primary">
-                    {selectedVar.description}
-                  </code>
-                ) : (
-                  <span className="text-xs italic text-muted-foreground">
-                    No variable selected
-                  </span>
-                )}
-              </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={runConnectionTest}
-                disabled={!selectedVar?.description?.trim() || testing || submitting}
-              >
-                {testing ? (
-                  <>
-                    <RefreshCw className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    Testing…
-                  </>
-                ) : (
-                  <>
-                    <Plug className="mr-1 h-3.5 w-3.5" />
-                    Test connection
-                  </>
-                )}
-              </Button>
-              {testResult && !testing && (
-                <div
-                  className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs ${
-                    testResult.ok
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                      : "border-destructive/30 bg-destructive/10 text-destructive"
-                  }`}
-                >
-                  {testResult.ok ? (
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                  ) : (
-                    <AlertCircle className="h-3.5 w-3.5" />
-                  )}
-                  <span className="font-medium">
-                    {testResult.ok
-                      ? `OK · ${testResult.status} · ${testResult.latencyMs}ms`
-                      : testResult.error ?? "Failed"}
-                  </span>
-                </div>
-              )}
+            <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2">
+              <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="text-[11px] text-muted-foreground">
+                Manage variables in the{" "}
+                <span className="font-medium text-foreground">Variables</span> tab
+              </span>
             </div>
-          </div>
-
-
-          <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2.5">
-            <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="text-[11px] text-muted-foreground">
-              Manage variables in the{" "}
-              <span className="font-medium text-foreground">Variables</span> tab
-            </span>
-          </div>
-        </div>
+          </CollapsibleContent>
+        </Collapsible>
       )}
     </Card>
   );

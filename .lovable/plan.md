@@ -1,41 +1,74 @@
-## Plan
+## เป้าหมาย
 
-### 1. Add "Test connection" button next to the endpoint dropdown
-
-In `src/components/ocr/OcrPanel.tsx`, inside the `needsVariable` block (engine = `webhook` or `self-hosted`), when a variable is selected and `selectedVar.description` (the URL) is valid, render a new **Test** button below the "Current Value" panel.
-
-Behavior:
-- Disabled until a variable with a URL is selected, and while a test or OCR submit is in flight.
-- On click, sends a lightweight POST to the URL — **no file, no OCR** — just a probe payload like:
-  ```json
-  { "ping": "lovable-ocr-test", "timestamp": "<ISO>" }
-  ```
-- Shows inline status (idle / testing / success / failed) with latency in ms and the HTTP status code. Also surfaces a toast.
-- Treats any 2xx as success. Non-2xx and network/CORS errors are shown as failure with the error message.
-
-### 2. Where the test call runs
-
-- **Webhook**: call via a new server function `testWebhook` in `src/lib/ocr.functions.ts` (avoids browser CORS, same as `runWebhookOcr`).
-- **Self-hosted (python-api)**: call from the browser via a new helper `testSelfHostedOcr` in `src/lib/ocr-client.ts` (must run client-side to reach `localhost`, same as `runSelfHostedOcr`). Network/CORS failures are reported as "Could not reach …".
-
-Neither path performs OCR or uploads any file — they only verify reachability.
-
-### 3. UI details
-
-- Small inline result row under the "Current Value" card: colored dot + status text + latency, mirroring the existing visual language.
-- Button uses `variant="outline"` with a `Plug`/`Activity` lucide icon and shows a spinner while testing.
-- No changes to variable management, engine selector, or OCR flow.
+จัด layout ส่วน **Endpoint Variable** (เฉพาะเมื่อเลือก engine เป็น Webhook หรือ Self-hosted) ใน `src/components/ocr/OcrPanel.tsx` ใหม่ ให้:
+- ซ่อนอยู่ภายใต้ปุ่ม **Settings** (ไอคอน ⚙️) ที่พับเก็บ/กางออกได้
+- จัดเรียง element ในบรรทัดเดียวกันเท่าที่หน้าจอเอื้อ
+- ลำดับการมองเห็น (UX flow): **Dropdown เลือกตัวแปร → ปุ่ม Refresh → ปุ่ม Test → แสดงผล Test/Current Value**
 
 ---
 
-## Answer: เครดิต Lovable AI สำหรับ OCR
+## โครงสร้างใหม่ของบล็อก `needsVariable`
 
-โหมด **Lovable AI** ในหน้านี้เรียก Lovable AI Gateway (`google/gemini-2.5-flash`) ผ่าน `runOcr` ใน `src/lib/ocr.functions.ts` โดยใช้ `LOVABLE_API_KEY`
+แทนที่กล่อง `<div className="overflow-hidden rounded-xl border bg-card">` เดิม (บรรทัด ~372-498) ด้วย collapsible panel:
 
-เครดิตที่หักคือ **AI credits** (ไม่ใช่ message credits ของแชต Lovable) คิดตาม **usage ของ Gemini Flash** ที่ Gateway เรียกให้:
-- input tokens = prompt + รูปภาพที่ส่งไป (ทุกหน้าที่ render เป็น data URL)
-- output tokens = ข้อความที่โมเดลส่งกลับ
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ ⚙️  Endpoint settings · [category badge]    [▼ พับ/กาง]      │  ← Header (คลิกเพื่อ toggle)
+├─────────────────────────────────────────────────────────────┤
+│ [Select variable ▼ ────────] [⟳] [🔌 Test]   ● status chip   │  ← แถวเดียว (sm+)
+│ ┌───────────────────────────────────────────────────────┐   │
+│ │ 🔗  https://endpoint.example.com/...        ● online  │   │  ← Current value (compact)
+│ └───────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
 
-ดังนั้นไฟล์ยิ่งหลายหน้า/รูปยิ่งใหญ่ → token รูปยิ่งเยอะ → ยิ่งกินเครดิต ส่วนโหมด Webhook และ Self-hosted **ไม่หัก** AI credits เพราะไม่ผ่าน Gateway
+พฤติกรรม:
+- ค่าเริ่มต้น **กางอยู่** เมื่อยังไม่ได้เลือกตัวแปร (เพื่อให้ผู้ใช้เห็นว่าต้องเลือกก่อน)
+- เมื่อเลือกตัวแปรแล้ว และ Test ผ่าน → auto-collapse เหลือเฉพาะ header สรุป (เช่น `⚙️ Endpoint: VAR_NAME ● online`)
+- คลิก header เพื่อ toggle เอง
+- ตอนพับอยู่ header จะสรุปสถานะให้เห็นทันที (variable name + status dot) ผู้ใช้ไม่ต้องกางก็รู้สถานะ
 
-ยอด AI balance ดูได้ที่ Settings → Cloud & AI balance (ทุก workspace มี $1 ฟรีต่อเดือนจนถึงต้นปี 2026)
+---
+
+## รายละเอียดการเปลี่ยนแปลง
+
+### 1. State ใหม่
+- เพิ่ม `const [settingsOpen, setSettingsOpen] = useState(true)`
+- เมื่อ `testResult?.ok === true` → setSettingsOpen(false) อัตโนมัติ (ใน effect)
+- เมื่อเปลี่ยน engine หรือยังไม่เลือก variable → setSettingsOpen(true)
+
+### 2. Import เพิ่ม
+- `Settings, ChevronDown` จาก lucide-react
+- ใช้ `Collapsible, CollapsibleContent, CollapsibleTrigger` จาก `@/components/ui/collapsible` (shadcn มีอยู่แล้ว)
+
+### 3. Header (trigger)
+- แสดง icon ⚙️, label `Endpoint settings`, category badge เล็กๆ
+- ขวามือ: chevron หมุนตาม open state
+- เมื่อ collapsed: แสดง summary inline `VAR_NAME` + status dot (เขียว/เทา/แดง)
+
+### 4. แถว Action เดียว (เมื่อกางอยู่)
+ใช้ `flex flex-wrap items-center gap-2`:
+- `<Select>` `flex-1 min-w-[200px]`
+- ปุ่ม Refresh `size="icon"` `h-10 w-10 shrink-0`
+- ปุ่ม Test `h-10 shrink-0` (ย้ายมาอยู่บรรทัดเดียว แทนที่จะอยู่ใต้)
+- Status chip (testResult) `shrink-0` — แสดง latency/error สั้นๆ
+
+บน mobile (`<sm`) ปุ่ม Test จะ wrap ลงบรรทัดถัดไปอัตโนมัติ
+
+### 5. Current Value (compact)
+- ลดขนาด padding (`p-2.5` แทน `p-3`)
+- รวม URL + status dot ในบรรทัดเดียว แบบ inline
+- ตัด label "CURRENT VALUE" ออก (ใช้แค่ไอคอน 🔗 นำหน้า) เพื่อความกระชับ
+
+### 6. ไม่แตะส่วนอื่น
+- EngineSelector (เลือก Lovable/Webhook/Self-hosted) คงเดิม
+- Dropzone, preview, result panel คงเดิม
+- ไม่แตะ `runConnectionTest`, `testWebhook`, `testSelfHostedEndpoint` (logic ทำงานเหมือนเดิม)
+
+---
+
+## ไฟล์ที่จะแก้
+
+- `src/components/ocr/OcrPanel.tsx` — ปรับเฉพาะ JSX block `needsVariable` ภายใน `EngineSelector` + เพิ่ม state/imports
+
+ไม่มีไฟล์ใหม่ ไม่มีการเปลี่ยน backend / business logic
