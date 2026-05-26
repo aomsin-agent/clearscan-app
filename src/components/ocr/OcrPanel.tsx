@@ -87,6 +87,7 @@ export function OcrPanel() {
   const [text, setText] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [copied, setCopied] = useState(false);
+  const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
   // Intention: hard UI lock during an in-flight request. `status` already
   // tracks the lifecycle for display, but `submitting` is the authoritative
   // input-disabled flag that prevents duplicate network calls / race
