@@ -455,7 +455,7 @@ export function OcrPanel() {
             type="button"
             size="lg"
             className="mt-8 shadow-md"
-            disabled={!canRun}
+            disabled={!canRun || submitting}
             onClick={(e) => e.stopPropagation()}
           >
             Browse files
