@@ -331,7 +331,7 @@ export function OcrPanel() {
 
             <div className="flex gap-2">
               <div className="flex-1">
-                <Select value={selectedVarId} onValueChange={setSelectedVarId}>
+                <Select value={selectedVarId} onValueChange={setSelectedVarId} disabled={submitting}>
                   <SelectTrigger className="h-11 bg-background">
                     <SelectValue
                       placeholder={
