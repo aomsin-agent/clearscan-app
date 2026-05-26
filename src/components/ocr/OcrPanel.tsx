@@ -118,53 +118,75 @@ export function OcrPanel() {
     setCopied(false);
   }, [previewUrl]);
 
-  const handleFile = useCallback(
+  const handleSubmit = useCallback(
     async (f: File) => {
+      // Intention: clear any previous run, then immediately flip the UI
+      // into a locked "submitting" state so the dropzone and action
+      // buttons cannot fire a second request while this one is in flight.
       reset();
       setFile(f);
       setStatus("processing");
+      setSubmitting(true);
 
       try {
+        // Intention: render a local preview for the user regardless of
+        // which engine we ship the bytes to. For PDFs we also rasterize
+        // pages because the Lovable AI engine consumes images.
         let images: string[] = [];
         let fileBase64 = "";
         if (f.type.startsWith("image/")) {
           setPreviewUrl(URL.createObjectURL(f));
           const m = await readImageMeta(f);
           setMeta(m);
-          fileBase64 = await fileToDataUrl(f);
-          images = [fileBase64];
+          if (engine !== "selfhosted") {
+            fileBase64 = await fileToDataUrl(f);
+            images = [fileBase64];
+          }
         } else if (f.type === "application/pdf") {
           const { dataUrls, pageCount } = await renderPdfPages(f);
           setMeta({ kind: "pdf", pageCount });
           setPdfPages(dataUrls);
-          fileBase64 = await fileToDataUrl(f);
-          images = dataUrls;
+          if (engine !== "selfhosted") {
+            fileBase64 = await fileToDataUrl(f);
+            images = dataUrls;
+          }
         } else {
           throw new Error("Unsupported file type");
         }
 
         let result: { text: string };
         if (engine === "lovable") {
+          // Intention: managed Lovable AI Gateway path — server function
+          // owns the Gemini call.
           result = await runOcrFn({ data: { images } });
-        } else {
+        } else if (engine === "webhook") {
+          // Intention: server-side fan-out to the user's webhook URL.
           const url = selectedVar?.description?.trim();
           if (!url) throw new Error("Select a variable that contains the endpoint URL");
-          const payload = {
-            url,
-            fileName: f.name,
-            fileType: f.type || "unknown",
-            fileSize: f.size,
-            fileBase64,
-            images,
-          };
-          if (engine === "webhook") {
-            result = await runWebhookFn({ data: payload });
-          } else {
-            // self-hosted runs from the browser so it can reach localhost
-            result = await runSelfHostedOcr(payload);
-          }
+          result = await runWebhookFn({
+            data: {
+              url,
+              fileName: f.name,
+              fileType: f.type || "unknown",
+              fileSize: f.size,
+              fileBase64,
+              images,
+            },
+          });
+        } else {
+          // Intention: self-hosted Docker path. The selected `variable`
+          // row's `description` column holds BACKEND_API_URL. We POST a
+          // multipart/form-data payload directly from the browser so the
+          // request can reach http://localhost, then `await` the
+          // synchronous response — the Python container holds the
+          // connection open until OCR finishes and replies with
+          // { status: "success", result_markdown: "..." }.
+          const url = selectedVar?.description?.trim();
+          if (!url) throw new Error("Select a variable that contains BACKEND_API_URL");
+          result = await runSelfHostedOcr({ url, file: f });
         }
 
+        // Intention: render extracted text and persist a history entry.
         setText(result.text);
         setStatus("done");
 
@@ -179,6 +201,10 @@ export function OcrPanel() {
         const msg = e instanceof Error ? e.message : "OCR failed";
         toast.error(msg);
         setStatus("error");
+      } finally {
+        // Intention: always release the UI lock, even on error, so the
+        // user can retry without reloading the page.
+        setSubmitting(false);
       }
     },
     [reset, runOcrFn, runWebhookFn, engine, selectedVar],
