@@ -1,5 +1,6 @@
 services:
   app:
+    container_name: web-app
     build:
       context: .
       dockerfile: Dockerfile
@@ -7,4 +8,14 @@ services:
       - "8000:8000"
     environment:
       - NODE_ENV=production
+    volumes:
+      - .:/app
+      - /app/node_modules
     restart: unless-stopped
+    networks:
+      - n8n-network
+
+networks:
+  n8n-network:
+    name: n8n-network
+    external: true
