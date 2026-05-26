@@ -365,7 +365,7 @@ export function OcrPanel() {
                 size="icon"
                 className="group h-11 w-11 shrink-0"
                 onClick={loadVariables}
-                disabled={varsLoading}
+                disabled={varsLoading || submitting}
                 title="Refresh variables"
               >
                 <RefreshCw
