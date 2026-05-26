@@ -53,7 +53,14 @@ interface VarOption {
   var_id: string;
   variable: string | null;
   description: string | null;
+  category: string | null;
 }
+
+const ENGINE_CATEGORY: Record<Engine, string | null> = {
+  lovable: null,
+  webhook: "webhook",
+  selfhosted: "python-api",
+};
 
 const ENGINE_LABEL: Record<Engine, string> = {
   lovable: "Lovable AI Gateway",
