@@ -185,21 +185,62 @@ app.post("/ocr", upload.single("file"), async (req, res) => {
 app.listen(8000);
 ```
 
-### n8n (Webhook node)
+### n8n (Webhook node) — ละเอียด
 
-1. **Webhook node** — Method: `POST`, Response Mode: `When Last Node Finishes`
-2. Process `{{ $binary.file }}` through your OCR step
-3. **Respond to Webhook** node — body:
-   ```json
-   {
-     "status": "success",
-     "markdown": "={{ $json.extractedText }}"
-   }
-   ```
+**Workflow ที่ถูกต้อง** ต้องประกอบด้วย 3 nodes ขึ้นไป:
+
+```
+[Webhook]  →  [OCR step (เช่น HTTP Request / Code / AI node)]  →  [Respond to Webhook]
+```
+
+#### 1. Webhook node
+
+- **HTTP Method**: `POST`
+- **Path**: ตามที่คุณตั้ง (จะเป็นส่วนหนึ่งของ URL)
+- **Respond**: เลือก **`Using 'Respond to Webhook' Node`** (แนะนำ)
+  - ทางเลือก: **`When Last Node Finishes`** + `Response Data` = `First Entry JSON` ก็ได้
+  - ❌ **ห้ามใช้** `Immediately` — n8n จะตอบ `{"message":"Workflow was started"}` ทันที แล้วประมวลผล background → app เห็นเป็น **bad-format** เพราะไม่มี `markdown`
+- **Binary Data**: เปิด เพื่อรับไฟล์ผ่าน `{{ $binary.file }}`
+
+#### 2. OCR step
+
+นำ `{{ $binary.file }}` ไปประมวลผล (เช่น เรียก OpenAI Vision, Mistral OCR, Tesseract container, ฯลฯ) ให้ได้ field ที่เป็น markdown string เช่น `{{ $json.extractedText }}`
+
+#### 3. Respond to Webhook node
+
+- **Respond With**: `JSON`
+- **Response Body**:
+  ```json
+  {
+    "status": "success",
+    "markdown": "={{ $json.extractedText }}"
+  }
+  ```
+- **Response Code**: `200`
+
+#### ตัวอย่าง error handling
+
+ถ้า OCR step error คุณสามารถต่อ **Error branch** → Respond to Webhook ตัวที่สอง:
+
+```json
+{
+  "status": "error",
+  "error": "={{ $json.error.message }}"
+}
+```
 
 ---
 
 ## 4. Connection test (`/test`)
+
+When the user clicks **Test connection**, the app sends a tiny probe:
+
+```
+POST <your-endpoint>
+Content-Type: application/json
+
+{ "ping": "lovable-ocr-test", "timestamp": "2026-01-01T00:00:00.000Z" }
+```
 
 When the user clicks **Test connection**, the app sends a tiny probe:
 
