@@ -141,7 +141,7 @@ export const runWebhookOcr = createServerFn({ method: "POST" })
     }
 
     const bytes = base64ToBytes(data.fileBase64);
-    const blob = new Blob([bytes], { type: data.fileType || "application/octet-stream" });
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: data.fileType || "application/octet-stream" });
 
     const form = new FormData();
     form.append("file", blob, data.fileName);
