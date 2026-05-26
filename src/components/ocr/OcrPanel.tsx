@@ -188,73 +188,131 @@ export function OcrPanel() {
     setText("");
     setStatus("idle");
     setCopied(false);
+    setResponseKind("none");
+    setResponseRaw("");
+    setResponseMessage("");
   }, [previewUrl]);
 
-  const handleSubmit = useCallback(
+  // Step 1: load file locally (preview + meta). Does NOT call any endpoint.
+  const loadFile = useCallback(
     async (f: File) => {
-      // Intention: clear any previous run, then immediately flip the UI
-      // into a locked "submitting" state so the dropzone and action
-      // buttons cannot fire a second request while this one is in flight.
+      reset();
+      setFile(f);
+      setSubmitting(true);
+      try {
+        if (f.type.startsWith("image/")) {
+          setPreviewUrl(URL.createObjectURL(f));
+          const m = await readImageMeta(f);
+          setMeta(m);
+        } else if (f.type === "application/pdf") {
+          const { dataUrls, pageCount } = await renderPdfPages(f);
+          setMeta({ kind: "pdf", pageCount });
+          setPdfPages(dataUrls);
+        } else {
+          throw new Error("Unsupported file type");
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to load file";
+        toast.error(msg);
+        setStatus("error");
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [reset],
+  );
+
+  // Step 2 (webhook / selfhosted): actually send the file to the endpoint.
+  const runValidate = useCallback(async () => {
+    if (!file) return;
+    if (engine === "lovable") return;
+    const url = selectedVar?.description?.trim();
+    if (!url) {
+      toast.error("Select a variable that contains the endpoint URL");
+      return;
+    }
+
+    setStatus("processing");
+    setSubmitting(true);
+    setText("");
+    setResponseKind("none");
+    setResponseRaw("");
+    setResponseMessage("");
+
+    try {
+      let result;
+      if (engine === "webhook") {
+        const fileBase64 = await fileToDataUrl(file);
+        result = await runWebhookFn({
+          data: {
+            url,
+            fileName: file.name,
+            fileType: file.type || "application/octet-stream",
+            fileSize: file.size,
+            fileBase64,
+          },
+        });
+      } else {
+        result = await runSelfHostedOcr({ url, file });
+      }
+
+      setResponseKind(result.kind);
+      setResponseRaw(result.raw);
+      setResponseMessage(result.message);
+
+      if (result.kind === "success") {
+        setText(result.markdown);
+        setViewMode("preview");
+        setStatus("done");
+        await supabase.from("ocr_history").insert({
+          file_name: file.name,
+          file_type: file.type || "unknown",
+          file_size: file.size,
+          extracted_text: `[${ENGINE_LABEL[engine]}]\n\n${result.markdown}`,
+        });
+      } else {
+        setStatus("done");
+        if (result.kind === "error") toast.error(result.message);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Request failed";
+      setResponseKind("error");
+      setResponseMessage(msg);
+      setStatus("error");
+      toast.error(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [file, engine, selectedVar, runWebhookFn]);
+
+  // Lovable engine: auto-extract on drop (legacy behavior).
+  const runLovableExtract = useCallback(
+    async (f: File) => {
       reset();
       setFile(f);
       setStatus("processing");
       setSubmitting(true);
 
       try {
-        // Intention: render a local preview for the user regardless of
-        // which engine we ship the bytes to. For PDFs we also rasterize
-        // pages because the Lovable AI engine consumes images.
         let lovableImages: string[] = [];
         if (f.type.startsWith("image/")) {
           setPreviewUrl(URL.createObjectURL(f));
           const m = await readImageMeta(f);
           setMeta(m);
-          if (engine === "lovable") {
-            lovableImages = [await fileToDataUrl(f)];
-          }
+          lovableImages = [await fileToDataUrl(f)];
         } else if (f.type === "application/pdf") {
           const { dataUrls, pageCount } = await renderPdfPages(f);
           setMeta({ kind: "pdf", pageCount });
           setPdfPages(dataUrls);
-          if (engine === "lovable") {
-            lovableImages = dataUrls;
-          }
+          lovableImages = dataUrls;
         } else {
           throw new Error("Unsupported file type");
         }
 
-        let result: { text: string };
-        if (engine === "lovable") {
-          result = await runOcrFn({ data: { images: lovableImages } });
-        } else if (engine === "webhook") {
-          // Server-side multipart fan-out. We base64-encode ONCE just to
-          // cross the TanStack RPC boundary (which can't transport File);
-          // the server decodes it and forwards raw bytes as multipart, so
-          // the webhook never sees base64.
-          const url = selectedVar?.description?.trim();
-          if (!url) throw new Error("Select a variable that contains the endpoint URL");
-          const fileBase64 = await fileToDataUrl(f);
-          result = await runWebhookFn({
-            data: {
-              url,
-              fileName: f.name,
-              fileType: f.type || "application/octet-stream",
-              fileSize: f.size,
-              fileBase64,
-            },
-          });
-        } else {
-          // Self-hosted Docker path — POST multipart/form-data straight
-          // from the browser so the request can reach http://localhost.
-          // Expected response: { status: "success", markdown: "..." }
-          const url = selectedVar?.description?.trim();
-          if (!url) throw new Error("Select a variable that contains BACKEND_API_URL");
-          result = await runSelfHostedOcr({ url, file: f });
-        }
-
-        // Intention: render extracted text and persist a history entry.
+        const result = await runOcrFn({ data: { images: lovableImages } });
         setText(result.text);
         setStatus("done");
+        setResponseKind("success");
 
         await supabase.from("ocr_history").insert({
           file_name: f.name,
@@ -268,12 +326,10 @@ export function OcrPanel() {
         toast.error(msg);
         setStatus("error");
       } finally {
-        // Intention: always release the UI lock, even on error, so the
-        // user can retry without reloading the page.
         setSubmitting(false);
       }
     },
-    [reset, runOcrFn, runWebhookFn, engine, selectedVar],
+    [reset, runOcrFn, engine],
   );
 
   const onDrop = useCallback(
@@ -283,10 +339,14 @@ export function OcrPanel() {
         toast.error("Select a variable first");
         return;
       }
-      if (accepted[0]) handleSubmit(accepted[0]);
+      if (!accepted[0]) return;
+      if (engine === "lovable") runLovableExtract(accepted[0]);
+      else loadFile(accepted[0]);
     },
-    [handleSubmit, canRun, submitting],
+    [engine, runLovableExtract, loadFile, canRun, submitting],
   );
+
+
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
