@@ -133,15 +133,31 @@ function extractMarkdown(payload: unknown): string {
   return JSON.stringify(payload, null, 2);
 }
 
+export type WebhookResult = {
+  kind: "success" | "bad-format" | "error";
+  markdown: string;
+  raw: string;
+  message: string;
+  httpStatus: number;
+};
+
 export const runWebhookOcr = createServerFn({ method: "POST" })
   .inputValidator((input) => WebhookSchema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<WebhookResult> => {
     if (!/^https?:\/\//i.test(data.url)) {
-      throw new Error("Webhook URL must start with http(s)://");
+      return {
+        kind: "error",
+        markdown: "",
+        raw: "",
+        message: "Webhook URL must start with http(s)://",
+        httpStatus: 0,
+      };
     }
 
     const bytes = base64ToBytes(data.fileBase64);
-    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: data.fileType || "application/octet-stream" });
+    const blob = new Blob([bytes.buffer as ArrayBuffer], {
+      type: data.fileType || "application/octet-stream",
+    });
 
     const form = new FormData();
     form.append("file", blob, data.fileName);
@@ -149,19 +165,47 @@ export const runWebhookOcr = createServerFn({ method: "POST" })
     form.append("fileType", data.fileType);
     form.append("fileSize", String(data.fileSize));
 
-    const res = await fetch(data.url, { method: "POST", body: form });
+    let res: Response;
+    try {
+      res = await fetch(data.url, { method: "POST", body: form });
+    } catch (e) {
+      return {
+        kind: "error",
+        markdown: "",
+        raw: "",
+        message: e instanceof Error ? e.message : `Could not reach ${data.url}`,
+        httpStatus: 0,
+      };
+    }
+
+    const raw = await res.text();
 
     if (!res.ok) {
-      const txt = await res.text();
-      console.error("Webhook error", res.status, txt);
-      throw new Error(`Webhook returned ${res.status}`);
+      return {
+        kind: "error",
+        markdown: "",
+        raw,
+        message: `Webhook returned ${res.status}`,
+        httpStatus: res.status,
+      };
     }
 
     const ct = res.headers.get("content-type") ?? "";
     if (ct.includes("application/json")) {
-      const json = await res.json();
-      // If response declares failure explicitly, surface it instead of
-      // silently rendering the error object.
+      let json: unknown;
+      try {
+        json = JSON.parse(raw);
+      } catch {
+        return {
+          kind: "bad-format",
+          markdown: "",
+          raw,
+          message:
+            'Webhook received, but response is not valid JSON. Expected `{ status: "success", markdown: "…" }`.',
+          httpStatus: res.status,
+        };
+      }
+
       if (
         json &&
         typeof json === "object" &&
@@ -173,11 +217,41 @@ export const runWebhookOcr = createServerFn({ method: "POST" })
           (json as Record<string, unknown>).error ??
           (json as Record<string, unknown>).message ??
           "Webhook reported a non-success status";
-        throw new Error(String(errMsg));
+        return {
+          kind: "error",
+          markdown: "",
+          raw,
+          message: String(errMsg),
+          httpStatus: res.status,
+        };
       }
-      return { text: extractMarkdown(json) };
+
+      const md = extractMarkdown(json);
+      const recognised = md && md !== JSON.stringify(json, null, 2);
+      if (!recognised) {
+        return {
+          kind: "bad-format",
+          markdown: "",
+          raw,
+          message:
+            'Webhook received, but response format is invalid. Expected `{ status: "success", markdown: "…" }`.',
+          httpStatus: res.status,
+        };
+      }
+      return { kind: "success", markdown: md, raw, message: "", httpStatus: res.status };
     }
-    return { text: await res.text() };
+
+    // Non-JSON: treat plain-text body as success markdown
+    if (raw.trim().length === 0) {
+      return {
+        kind: "bad-format",
+        markdown: "",
+        raw,
+        message: "Webhook returned an empty body.",
+        httpStatus: res.status,
+      };
+    }
+    return { kind: "success", markdown: raw, raw, message: "", httpStatus: res.status };
   });
 
 /**
