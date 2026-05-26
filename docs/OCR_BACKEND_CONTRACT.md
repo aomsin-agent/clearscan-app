@@ -86,6 +86,36 @@ For backward compatibility, the app also unwraps these:
 
 ---
 
+## 2.1 Response vs. Acknowledgment (สำคัญมาก)
+
+"**Response**" ในเอกสารนี้ = JSON body ที่ส่งกลับ **หลังจากที่ OCR pipeline ประมวลผลเสร็จแล้ว** — ไม่ใช่ 200 OK ที่ตอบทันทีหลังรับไฟล์
+
+App เรียก endpoint ของคุณแบบ **synchronous**: `await fetch(...)` รอจนกว่าจะได้ body กลับ แล้วเอา `markdown` ไปแสดงผลทันที ไม่มี polling / callback / job-id
+
+| รูปแบบที่ backend ทำ | ผลที่ app เห็น |
+|---|---|
+| ตอบ 200 ทันที + `{"message":"Workflow was started"}` แล้วประมวลผล background | ❌ **bad-format** — ไม่มี `markdown` field |
+| ตอบ 202 Accepted + job id | ❌ **bad-format** — app ไม่ poll job |
+| รอ OCR เสร็จ → ตอบ 200 + `{"status":"success","markdown":"..."}` | ✅ **success** |
+
+ดังนั้น backend ต้อง:
+- **n8n**: ตั้ง Webhook node → `Respond` = `Using 'Respond to Webhook' Node` (หรือ `When Last Node Finishes`) **ไม่ใช่** `Immediately` — รายละเอียดด้านล่าง
+- **FastAPI / Flask / Express**: `return` เฉพาะหลังจาก `run_my_ocr_pipeline()` ทำงานเสร็จ (ดูตัวอย่างใน section 3 — เป็น pattern ที่ถูกอยู่แล้ว) — ห้าม spawn background task แล้ว return ก่อน
+
+### ข้อจำกัดเรื่องเวลา
+
+เนื่องจากเป็น synchronous HTTP request, pipeline ของคุณต้องเสร็จภายใน timeout:
+
+| ฝั่ง | Timeout โดยประมาณ |
+|---|---|
+| n8n Cloud | ~5 นาที |
+| Cloudflare Worker (app เรียกในนี้) | ~5 นาที (sub-request timeout) |
+| Browser fetch (self-hosted) | ตามค่า default ของ browser (ปกติไม่ตัด) |
+
+ถ้า OCR ของคุณใช้เวลานานกว่านี้ จะต้องเปลี่ยนเป็น architecture แบบ async (queue + polling) ซึ่ง contract นี้ **ไม่รองรับ** — ต้องแก้ที่ฝั่ง app เพิ่ม
+
+---
+
 ## 3. Implementation examples
 
 ### Python — FastAPI
