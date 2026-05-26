@@ -1,54 +1,90 @@
-## เป้าหมาย
+# Self-hosted OCR: multipart upload + sync wait + result_markdown
 
-ปรับช่อง "Endpoint variable" ใน `src/components/ocr/OcrPanel.tsx` ให้ใช้ดีไซน์ **Modern integrated dropdown** ที่ผู้ใช้เลือก โดยคงพฤติกรรมเดิม (โหลดจากตาราง `variable`, refresh, ใช้ `description` เป็น URL)
+Scope: only the **Self-hosted (Docker)** engine path. Lovable AI and Webhook engines stay as-is.
 
-## ขอบเขตการเปลี่ยนแปลง
+## 1. `src/lib/ocr-client.ts` — rewrite `runSelfHostedOcr`
 
-แก้ไขเฉพาะบล็อก `{needsVariable && (...)}` ภายใน `EngineSelector` (บรรทัด ~288–334) ไม่แตะ logic / state / ฟังก์ชัน OCR
+Replace the current JSON/base64 body with a real `multipart/form-data` upload, and parse the documented response shape.
 
-## โครงสร้างใหม่ (อิงต้นแบบที่เลือก)
+```ts
+export async function runSelfHostedOcr(params: {
+  url: string;          // BACKEND_API_URL from `variable` table
+  file: File;           // raw File, NOT base64
+}): Promise<{ text: string }> {
+  // Intention: validate the endpoint up-front so we fail fast before
+  // touching the network or locking the UI.
+  if (!/^https?:\/\//i.test(params.url)) {
+    throw new Error("BACKEND_API_URL must start with http(s)://");
+  }
 
-```text
-┌─ Card (เดิม) ─────────────────────────────────────┐
-│ OCR Engine selector (เดิม ไม่แก้)                  │
-│                                                   │
-│ Endpoint Variable                       ← label หนา
-│ Select a variable containing your URL.  ← helper
-│                                                   │
-│ [ Select ▼              ]  [ ⟳ ]   ← select + ปุ่ม refresh แยกเป็นกล่อง
-│                                                   │
-│ ┌─ Preview block (bg-muted/40, rounded) ────────┐│
-│ │ CURRENT VALUE              ● (เขียว/เทา)       ││
-│ │ [🔗] https://endpoint...   ← mono, primary    ││
-│ └────────────────────────────────────────────────┘│
-│                                                   │
-│ ⓘ Manage variables in the Variables tab          │ ← footer แบ่งเส้น
-└───────────────────────────────────────────────────┘
+  // Intention: build a multipart payload so the Python container can
+  // stream the file via standard form parsers (FastAPI UploadFile, Flask
+  // request.files, etc.) instead of decoding base64 manually.
+  const form = new FormData();
+  form.append("file", params.file, params.file.name);
+
+  // Intention: hold the connection open with `await` until the container
+  // finishes its synchronous OCR pipeline and writes back the JSON body.
+  // We deliberately do NOT set Content-Type — the browser appends the
+  // correct multipart boundary automatically.
+  let res: Response;
+  try {
+    res = await fetch(params.url, { method: "POST", body: form });
+  } catch {
+    throw new Error(
+      `Could not reach ${params.url}. Check the container is running and CORS allows this origin.`,
+    );
+  }
+
+  if (!res.ok) {
+    throw new Error(`Self-hosted endpoint returned ${res.status}`);
+  }
+
+  // Intention: contract with the Python backend is
+  //   { status: "success", result_markdown: "..." }
+  // Anything else is treated as a failure surfaced to the user.
+  const json = await res.json().catch(() => null) as
+    | { status?: string; result_markdown?: string; error?: string }
+    | null;
+
+  if (!json || json.status !== "success" || typeof json.result_markdown !== "string") {
+    throw new Error(json?.error ?? "Self-hosted backend did not return a successful result_markdown payload");
+  }
+
+  return { text: json.result_markdown };
+}
 ```
 
-### รายละเอียดการ map ไปยัง design tokens
+## 2. `src/components/ocr/OcrPanel.tsx` — wire the new contract + UI lock
 
-- พื้น Card คงเดิม (`bg-card`)
-- Helper text: `text-xs text-muted-foreground`
-- Label: `text-sm font-semibold text-foreground`
-- Select + ปุ่ม refresh: วางคู่กันด้วย `flex gap-2`; ปุ่ม refresh เป็น `variant="outline" size="icon"` (ไอคอน `RefreshCw` หมุน 180° บน hover ด้วย `transition-transform duration-500 group-hover:rotate-180`)
-- Preview block:
-  - `rounded-lg border bg-muted/40 p-3`
-  - Header แถวเล็ก: `CURRENT VALUE` (`text-[10px] font-bold uppercase tracking-wider text-muted-foreground`) + จุดสถานะ `h-2 w-2 rounded-full` (เขียว `bg-emerald-500` เมื่อมี URL, เทา `bg-muted-foreground/40` เมื่อยังไม่เลือก)
-  - บรรทัด URL: ไอคอน `Link2` ในกรอบเล็ก `p-1.5 bg-background border rounded` + `<code>` ฟอนต์ mono `text-xs text-primary break-all`
-  - ถ้ายังไม่ได้เลือก variable แสดงข้อความ placeholder จาง ๆ ("No variable selected")
-- Footer: แยกด้วย `border-t` พื้น `bg-muted/30`, `px-4 py-2.5`, ไอคอน Info เล็ก + ข้อความ "Manage variables in the Variables tab"
+Targeted edits only — no redesign of the EngineSelector card built last turn.
 
-### พฤติกรรมที่คงไว้ (ไม่แตะ)
+- Pass the raw `File` to `runSelfHostedOcr` (skip the base64 conversion when engine === "selfhosted" to avoid wasted work on large files).
+- Add a `submitting` boolean state. Set it `true` at the start of `handleFile` and `false` in a `finally` block.
+- Disable while `submitting`:
+  - Dropzone (`disabled: !canRun || submitting` in `useDropzone`)
+  - Engine selector buttons
+  - Endpoint variable `<Select>` and refresh button
+  - Browse files / Clear buttons
+- Show "Uploading to self-hosted container…" copy in the existing processing spinner when `engine === "selfhosted"`.
+- Keep the existing `status === "processing"` flow; `submitting` is the hard input lock on top of it.
 
-- `loadVariables`, `selectedVarId`, `selectedVar`, `varsLoading`
-- Select ยังใช้ shadcn `<Select>` component (เพื่อ keyboard/accessibility) แต่ปรับ trigger ให้ดูสะอาดตามต้นแบบ
-- รายการตัวเลือกใน `SelectItem` ยังโชว์ชื่อ variable + URL ตัด truncate เหมือนเดิม
-- ปุ่ม Refresh ยังเรียก `loadVariables`, ไอคอนหมุนตอน `varsLoading`
+## 3. `BACKEND_API_URL` lookup
 
-## ไม่เปลี่ยน
+The user's spec references `variable.BACKEND_API_URL`. The dropdown already lets the user pick which row to use, and its `description` column stores the URL — that's the existing accessible field. Plan:
 
-- ไม่แตะ Engine selector ด้านบน
-- ไม่แตะ NoticeBanner
-- ไม่แตะ dropzone / preview / extracted text
-- ไม่แก้ไฟล์อื่นนอกจาก `OcrPanel.tsx`
+- Keep the dropdown as the source of truth (it already filters out rows with no URL).
+- When the user picks a row whose `variable` name is `BACKEND_API_URL`, that's the documented happy path. No schema change.
+- Add a tiny helper comment in `OcrPanel.tsx` noting that the selected row's `description` is treated as `BACKEND_API_URL`.
+
+## 4. Out of scope
+
+- No DB migration. The `variable` table already exposes `variable` + `description`.
+- No changes to the Lovable AI or Webhook engines.
+- No changes to history insert (still records `[Self-hosted (Docker)]` prefix + extracted text).
+
+## 5. Verification
+
+After implementation:
+- `bun run build` (auto by harness) must pass.
+- Manual smoke: pick a self-hosted variable, drop an image, confirm the UI locks during the request and the textarea renders `result_markdown` on success.

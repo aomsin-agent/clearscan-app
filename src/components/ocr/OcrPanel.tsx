@@ -70,6 +70,11 @@ export function OcrPanel() {
   const [text, setText] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [copied, setCopied] = useState(false);
+  // Intention: hard UI lock during an in-flight request. `status` already
+  // tracks the lifecycle for display, but `submitting` is the authoritative
+  // input-disabled flag that prevents duplicate network calls / race
+  // conditions while the connection is held open.
+  const [submitting, setSubmitting] = useState(false);
 
   const [engine, setEngine] = useState<Engine>("lovable");
   const [variables, setVariables] = useState<VarOption[]>([]);
@@ -113,53 +118,75 @@ export function OcrPanel() {
     setCopied(false);
   }, [previewUrl]);
 
-  const handleFile = useCallback(
+  const handleSubmit = useCallback(
     async (f: File) => {
+      // Intention: clear any previous run, then immediately flip the UI
+      // into a locked "submitting" state so the dropzone and action
+      // buttons cannot fire a second request while this one is in flight.
       reset();
       setFile(f);
       setStatus("processing");
+      setSubmitting(true);
 
       try {
+        // Intention: render a local preview for the user regardless of
+        // which engine we ship the bytes to. For PDFs we also rasterize
+        // pages because the Lovable AI engine consumes images.
         let images: string[] = [];
         let fileBase64 = "";
         if (f.type.startsWith("image/")) {
           setPreviewUrl(URL.createObjectURL(f));
           const m = await readImageMeta(f);
           setMeta(m);
-          fileBase64 = await fileToDataUrl(f);
-          images = [fileBase64];
+          if (engine !== "selfhosted") {
+            fileBase64 = await fileToDataUrl(f);
+            images = [fileBase64];
+          }
         } else if (f.type === "application/pdf") {
           const { dataUrls, pageCount } = await renderPdfPages(f);
           setMeta({ kind: "pdf", pageCount });
           setPdfPages(dataUrls);
-          fileBase64 = await fileToDataUrl(f);
-          images = dataUrls;
+          if (engine !== "selfhosted") {
+            fileBase64 = await fileToDataUrl(f);
+            images = dataUrls;
+          }
         } else {
           throw new Error("Unsupported file type");
         }
 
         let result: { text: string };
         if (engine === "lovable") {
+          // Intention: managed Lovable AI Gateway path — server function
+          // owns the Gemini call.
           result = await runOcrFn({ data: { images } });
-        } else {
+        } else if (engine === "webhook") {
+          // Intention: server-side fan-out to the user's webhook URL.
           const url = selectedVar?.description?.trim();
           if (!url) throw new Error("Select a variable that contains the endpoint URL");
-          const payload = {
-            url,
-            fileName: f.name,
-            fileType: f.type || "unknown",
-            fileSize: f.size,
-            fileBase64,
-            images,
-          };
-          if (engine === "webhook") {
-            result = await runWebhookFn({ data: payload });
-          } else {
-            // self-hosted runs from the browser so it can reach localhost
-            result = await runSelfHostedOcr(payload);
-          }
+          result = await runWebhookFn({
+            data: {
+              url,
+              fileName: f.name,
+              fileType: f.type || "unknown",
+              fileSize: f.size,
+              fileBase64,
+              images,
+            },
+          });
+        } else {
+          // Intention: self-hosted Docker path. The selected `variable`
+          // row's `description` column holds BACKEND_API_URL. We POST a
+          // multipart/form-data payload directly from the browser so the
+          // request can reach http://localhost, then `await` the
+          // synchronous response — the Python container holds the
+          // connection open until OCR finishes and replies with
+          // { status: "success", result_markdown: "..." }.
+          const url = selectedVar?.description?.trim();
+          if (!url) throw new Error("Select a variable that contains BACKEND_API_URL");
+          result = await runSelfHostedOcr({ url, file: f });
         }
 
+        // Intention: render extracted text and persist a history entry.
         setText(result.text);
         setStatus("done");
 
@@ -174,6 +201,10 @@ export function OcrPanel() {
         const msg = e instanceof Error ? e.message : "OCR failed";
         toast.error(msg);
         setStatus("error");
+      } finally {
+        // Intention: always release the UI lock, even on error, so the
+        // user can retry without reloading the page.
+        setSubmitting(false);
       }
     },
     [reset, runOcrFn, runWebhookFn, engine, selectedVar],
@@ -181,19 +212,20 @@ export function OcrPanel() {
 
   const onDrop = useCallback(
     (accepted: File[]) => {
+      if (submitting) return;
       if (!canRun) {
         toast.error("Select a variable first");
         return;
       }
-      if (accepted[0]) handleFile(accepted[0]);
+      if (accepted[0]) handleSubmit(accepted[0]);
     },
-    [handleFile, canRun],
+    [handleSubmit, canRun, submitting],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     multiple: false,
-    disabled: !canRun,
+    disabled: !canRun || submitting,
     accept: {
       "image/*": [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"],
       "application/pdf": [".pdf"],
@@ -259,11 +291,12 @@ export function OcrPanel() {
               <button
                 key={id}
                 type="button"
+                disabled={submitting}
                 onClick={() => {
                   setEngine(id);
                   reset();
                 }}
-                className={`flex items-start gap-3 rounded-lg border p-3 text-left transition ${
+                className={`flex items-start gap-3 rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   active
                     ? "border-primary bg-accent/40 shadow-sm"
                     : "border-border hover:border-primary/50 hover:bg-accent/20"
@@ -298,7 +331,7 @@ export function OcrPanel() {
 
             <div className="flex gap-2">
               <div className="flex-1">
-                <Select value={selectedVarId} onValueChange={setSelectedVarId}>
+                <Select value={selectedVarId} onValueChange={setSelectedVarId} disabled={submitting}>
                   <SelectTrigger className="h-11 bg-background">
                     <SelectValue
                       placeholder={
@@ -332,7 +365,7 @@ export function OcrPanel() {
                 size="icon"
                 className="group h-11 w-11 shrink-0"
                 onClick={loadVariables}
-                disabled={varsLoading}
+                disabled={varsLoading || submitting}
                 title="Refresh variables"
               >
                 <RefreshCw
@@ -422,7 +455,7 @@ export function OcrPanel() {
             type="button"
             size="lg"
             className="mt-8 shadow-md"
-            disabled={!canRun}
+            disabled={!canRun || submitting}
             onClick={(e) => e.stopPropagation()}
           >
             Browse files
@@ -455,7 +488,7 @@ export function OcrPanel() {
             </p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={reset}>
+        <Button variant="outline" size="sm" onClick={reset} disabled={submitting}>
           <X className="mr-1 h-4 w-4" />
           Clear
         </Button>
@@ -539,7 +572,9 @@ export function OcrPanel() {
               <div className="flex h-[440px] flex-col items-center justify-center gap-4">
                 <Spinner />
                 <p className="text-sm text-muted-foreground">
-                  Waiting for response from {ENGINE_LABEL[engine]}…
+                  {engine === "selfhosted"
+                    ? "Uploading to self-hosted container and waiting for OCR result…"
+                    : `Waiting for response from ${ENGINE_LABEL[engine]}…`}
                 </p>
               </div>
             )}
