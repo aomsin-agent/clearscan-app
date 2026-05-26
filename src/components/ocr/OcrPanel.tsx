@@ -291,11 +291,12 @@ export function OcrPanel() {
               <button
                 key={id}
                 type="button"
+                disabled={submitting}
                 onClick={() => {
                   setEngine(id);
                   reset();
                 }}
-                className={`flex items-start gap-3 rounded-lg border p-3 text-left transition ${
+                className={`flex items-start gap-3 rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   active
                     ? "border-primary bg-accent/40 shadow-sm"
                     : "border-border hover:border-primary/50 hover:bg-accent/20"
