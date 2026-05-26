@@ -25,6 +25,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -87,6 +89,7 @@ export function OcrPanel() {
   const [text, setText] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [copied, setCopied] = useState(false);
+  const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
   // Intention: hard UI lock during an in-flight request. `status` already
   // tracks the lifecycle for display, but `submitting` is the authoritative
   // input-disabled flag that prevents duplicate network calls / race
@@ -197,23 +200,20 @@ export function OcrPanel() {
         // Intention: render a local preview for the user regardless of
         // which engine we ship the bytes to. For PDFs we also rasterize
         // pages because the Lovable AI engine consumes images.
-        let images: string[] = [];
-        let fileBase64 = "";
+        let lovableImages: string[] = [];
         if (f.type.startsWith("image/")) {
           setPreviewUrl(URL.createObjectURL(f));
           const m = await readImageMeta(f);
           setMeta(m);
-          if (engine !== "selfhosted") {
-            fileBase64 = await fileToDataUrl(f);
-            images = [fileBase64];
+          if (engine === "lovable") {
+            lovableImages = [await fileToDataUrl(f)];
           }
         } else if (f.type === "application/pdf") {
           const { dataUrls, pageCount } = await renderPdfPages(f);
           setMeta({ kind: "pdf", pageCount });
           setPdfPages(dataUrls);
-          if (engine !== "selfhosted") {
-            fileBase64 = await fileToDataUrl(f);
-            images = dataUrls;
+          if (engine === "lovable") {
+            lovableImages = dataUrls;
           }
         } else {
           throw new Error("Unsupported file type");
@@ -221,31 +221,28 @@ export function OcrPanel() {
 
         let result: { text: string };
         if (engine === "lovable") {
-          // Intention: managed Lovable AI Gateway path — server function
-          // owns the Gemini call.
-          result = await runOcrFn({ data: { images } });
+          result = await runOcrFn({ data: { images: lovableImages } });
         } else if (engine === "webhook") {
-          // Intention: server-side fan-out to the user's webhook URL.
+          // Server-side multipart fan-out. We base64-encode ONCE just to
+          // cross the TanStack RPC boundary (which can't transport File);
+          // the server decodes it and forwards raw bytes as multipart, so
+          // the webhook never sees base64.
           const url = selectedVar?.description?.trim();
           if (!url) throw new Error("Select a variable that contains the endpoint URL");
+          const fileBase64 = await fileToDataUrl(f);
           result = await runWebhookFn({
             data: {
               url,
               fileName: f.name,
-              fileType: f.type || "unknown",
+              fileType: f.type || "application/octet-stream",
               fileSize: f.size,
               fileBase64,
-              images,
             },
           });
         } else {
-          // Intention: self-hosted Docker path. The selected `variable`
-          // row's `description` column holds BACKEND_API_URL. We POST a
-          // multipart/form-data payload directly from the browser so the
-          // request can reach http://localhost, then `await` the
-          // synchronous response — the Python container holds the
-          // connection open until OCR finishes and replies with
-          // { status: "success", result_markdown: "..." }.
+          // Self-hosted Docker path — POST multipart/form-data straight
+          // from the browser so the request can reach http://localhost.
+          // Expected response: { status: "success", markdown: "..." }
           const url = selectedVar?.description?.trim();
           if (!url) throw new Error("Select a variable that contains BACKEND_API_URL");
           result = await runSelfHostedOcr({ url, file: f });
@@ -691,24 +688,52 @@ export function OcrPanel() {
         </Card>
 
         <Card className="flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
+          <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
             <span className="text-sm font-medium text-muted-foreground">Extracted text</span>
-            <Button
-              size="sm"
-              variant={copied ? "secondary" : "default"}
-              disabled={status !== "done" || !text}
-              onClick={copy}
-            >
-              {copied ? (
-                <>
-                  <Check className="mr-1 h-4 w-4" /> Copied
-                </>
-              ) : (
-                <>
-                  <Copy className="mr-1 h-4 w-4" /> Copy
-                </>
-              )}
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <div className="flex rounded-md border bg-background p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("preview")}
+                  disabled={status !== "done" || !text}
+                  className={`rounded px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
+                    viewMode === "preview"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("raw")}
+                  disabled={status !== "done" || !text}
+                  className={`rounded px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
+                    viewMode === "raw"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Raw
+                </button>
+              </div>
+              <Button
+                size="sm"
+                variant={copied ? "secondary" : "default"}
+                disabled={status !== "done" || !text}
+                onClick={copy}
+              >
+                {copied ? (
+                  <>
+                    <Check className="mr-1 h-4 w-4" /> Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="mr-1 h-4 w-4" /> Copy
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
           <div className="relative flex-1 p-4">
             {status === "processing" && (
@@ -721,7 +746,12 @@ export function OcrPanel() {
                 </p>
               </div>
             )}
-            {status !== "processing" && (
+            {status !== "processing" && viewMode === "preview" && text && (
+              <div className="prose prose-sm dark:prose-invert h-[460px] max-w-none overflow-auto rounded-md border bg-background p-4">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+              </div>
+            )}
+            {status !== "processing" && (viewMode === "raw" || !text) && (
               <Textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}

@@ -7,43 +7,57 @@
  * permissive CORS headers (Access-Control-Allow-Origin: * or the Lovable
  * preview origin) for this to work.
  *
- * Wire contract with the Python backend:
- *   Request:  multipart/form-data, single field `file`
- *   Response: { "status": "success", "result_markdown": "..." }
+ * Wire contract:
+ *   Request  → multipart/form-data, field `file` (binary), plus `fileName`,
+ *              `fileType`, `fileSize` for convenience
+ *   Response → JSON: { "status": "success", "markdown": "..." }
+ *              (Legacy `result_markdown` and other shapes are also accepted —
+ *              see extractMarkdown() below.)
  */
+function extractMarkdown(payload: unknown): string {
+  if (payload == null) return "";
+  if (typeof payload === "string") return payload;
+  if (Array.isArray(payload)) {
+    if (payload.length === 0) return "";
+    return extractMarkdown(payload[0]);
+  }
+  if (typeof payload === "object") {
+    const obj = payload as Record<string, unknown>;
+    if (typeof obj.markdown === "string") return obj.markdown;
+    if (typeof obj.result_markdown === "string") return obj.result_markdown;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.result === "string") return obj.result;
+    if (typeof obj.data === "string") return obj.data;
+    if (typeof obj.output === "string") return obj.output;
+    for (const key of ["data", "output", "json", "result"] as const) {
+      const nested = obj[key];
+      if (nested && typeof nested === "object") {
+        const inner = extractMarkdown(nested);
+        if (inner) return inner;
+      }
+    }
+  }
+  return JSON.stringify(payload, null, 2);
+}
+
 export async function runSelfHostedOcr(params: {
-  /** BACKEND_API_URL pulled from the `variable` table row selected by the user. */
   url: string;
-  /** Raw File from the dropzone — sent as-is, no base64 round-trip. */
   file: File;
 }): Promise<{ text: string }> {
-  // Intention: validate the endpoint up-front so we fail fast before
-  // touching the network or locking the UI on a clearly-bad URL.
   if (!/^https?:\/\//i.test(params.url)) {
     throw new Error("BACKEND_API_URL must start with http(s)://");
   }
 
-  // Intention: build a multipart/form-data payload so the Python container
-  // can stream the file via standard form parsers (FastAPI UploadFile,
-  // Flask `request.files`, etc.) instead of decoding base64 by hand.
-  // We deliberately do NOT set the Content-Type header — the browser
-  // appends the correct multipart boundary automatically when the body
-  // is a FormData instance.
   const form = new FormData();
   form.append("file", params.file, params.file.name);
+  form.append("fileName", params.file.name);
+  form.append("fileType", params.file.type || "application/octet-stream");
+  form.append("fileSize", String(params.file.size));
 
-  // Intention: hold the HTTP connection open with `await` until the
-  // Python container finishes its synchronous OCR pipeline and writes
-  // back the JSON body. The UI lock around this call (see OcrPanel)
-  // prevents the user from firing duplicate requests during the wait.
   let res: Response;
   try {
-    res = await fetch(params.url, {
-      method: "POST",
-      body: form,
-    });
+    res = await fetch(params.url, { method: "POST", body: form });
   } catch {
-    // Network-level failure (DNS, connection refused, CORS preflight, …).
     throw new Error(
       `Could not reach ${params.url}. Check that the container is running and CORS is enabled for this origin.`,
     );
@@ -53,26 +67,31 @@ export async function runSelfHostedOcr(params: {
     throw new Error(`Self-hosted endpoint returned ${res.status}`);
   }
 
-  // Intention: documented contract with the Python backend is
-  //   { status: "success", result_markdown: "..." }
-  // Anything else is treated as a failure and surfaced to the user
-  // rather than silently rendering garbage in the extracted-text panel.
-  const json = (await res.json().catch(() => null)) as
-    | { status?: string; result_markdown?: string; error?: string }
-    | null;
-
-  if (
-    !json ||
-    json.status !== "success" ||
-    typeof json.result_markdown !== "string"
-  ) {
-    throw new Error(
-      json?.error ??
-        "Self-hosted backend did not return a successful result_markdown payload",
-    );
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) {
+    return { text: await res.text() };
   }
 
-  return { text: json.result_markdown };
+  const json = (await res.json().catch(() => null)) as unknown;
+
+  // Honor explicit non-success status
+  if (
+    json &&
+    typeof json === "object" &&
+    !Array.isArray(json) &&
+    typeof (json as Record<string, unknown>).status === "string" &&
+    (json as Record<string, unknown>).status !== "success"
+  ) {
+    const errMsg =
+      (json as Record<string, unknown>).error ??
+      (json as Record<string, unknown>).message ??
+      "Backend reported a non-success status";
+    throw new Error(String(errMsg));
+  }
+
+  const text = extractMarkdown(json);
+  if (!text) throw new Error("Backend response did not include a markdown field");
+  return { text };
 }
 
 /**
