@@ -93,6 +93,37 @@ export function OcrPanel() {
 
   const runOcrFn = useServerFn(runOcr);
   const runWebhookFn = useServerFn(runWebhookOcr);
+  const testWebhookFn = useServerFn(testWebhook);
+
+  type TestResult = { ok: boolean; status: number; latencyMs: number; error: string | null };
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+
+  // Reset test result when variable/engine changes
+  useEffect(() => {
+    setTestResult(null);
+  }, [selectedVarId, engine]);
+
+  const runConnectionTest = useCallback(async () => {
+    const url = selectedVar?.description?.trim();
+    if (!url) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result =
+        engine === "webhook"
+          ? await testWebhookFn({ data: { url } })
+          : await testSelfHostedEndpoint({ url });
+      setTestResult(result);
+      if (result.ok) {
+        toast.success(`Endpoint reachable (${result.status}) in ${result.latencyMs}ms`);
+      } else {
+        toast.error(result.error ?? "Endpoint test failed");
+      }
+    } finally {
+      setTesting(false);
+    }
+  }, [engine, selectedVar, testWebhookFn]);
 
   const loadVariables = useCallback(async () => {
     setVarsLoading(true);
