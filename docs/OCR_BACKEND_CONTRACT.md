@@ -86,6 +86,36 @@ For backward compatibility, the app also unwraps these:
 
 ---
 
+## 2.1 Response vs. Acknowledgment (สำคัญมาก)
+
+"**Response**" ในเอกสารนี้ = JSON body ที่ส่งกลับ **หลังจากที่ OCR pipeline ประมวลผลเสร็จแล้ว** — ไม่ใช่ 200 OK ที่ตอบทันทีหลังรับไฟล์
+
+App เรียก endpoint ของคุณแบบ **synchronous**: `await fetch(...)` รอจนกว่าจะได้ body กลับ แล้วเอา `markdown` ไปแสดงผลทันที ไม่มี polling / callback / job-id
+
+| รูปแบบที่ backend ทำ | ผลที่ app เห็น |
+|---|---|
+| ตอบ 200 ทันที + `{"message":"Workflow was started"}` แล้วประมวลผล background | ❌ **bad-format** — ไม่มี `markdown` field |
+| ตอบ 202 Accepted + job id | ❌ **bad-format** — app ไม่ poll job |
+| รอ OCR เสร็จ → ตอบ 200 + `{"status":"success","markdown":"..."}` | ✅ **success** |
+
+ดังนั้น backend ต้อง:
+- **n8n**: ตั้ง Webhook node → `Respond` = `Using 'Respond to Webhook' Node` (หรือ `When Last Node Finishes`) **ไม่ใช่** `Immediately` — รายละเอียดด้านล่าง
+- **FastAPI / Flask / Express**: `return` เฉพาะหลังจาก `run_my_ocr_pipeline()` ทำงานเสร็จ (ดูตัวอย่างใน section 3 — เป็น pattern ที่ถูกอยู่แล้ว) — ห้าม spawn background task แล้ว return ก่อน
+
+### ข้อจำกัดเรื่องเวลา
+
+เนื่องจากเป็น synchronous HTTP request, pipeline ของคุณต้องเสร็จภายใน timeout:
+
+| ฝั่ง | Timeout โดยประมาณ |
+|---|---|
+| n8n Cloud | ~5 นาที |
+| Cloudflare Worker (app เรียกในนี้) | ~5 นาที (sub-request timeout) |
+| Browser fetch (self-hosted) | ตามค่า default ของ browser (ปกติไม่ตัด) |
+
+ถ้า OCR ของคุณใช้เวลานานกว่านี้ จะต้องเปลี่ยนเป็น architecture แบบ async (queue + polling) ซึ่ง contract นี้ **ไม่รองรับ** — ต้องแก้ที่ฝั่ง app เพิ่ม
+
+---
+
 ## 3. Implementation examples
 
 ### Python — FastAPI
@@ -155,21 +185,62 @@ app.post("/ocr", upload.single("file"), async (req, res) => {
 app.listen(8000);
 ```
 
-### n8n (Webhook node)
+### n8n (Webhook node) — ละเอียด
 
-1. **Webhook node** — Method: `POST`, Response Mode: `When Last Node Finishes`
-2. Process `{{ $binary.file }}` through your OCR step
-3. **Respond to Webhook** node — body:
-   ```json
-   {
-     "status": "success",
-     "markdown": "={{ $json.extractedText }}"
-   }
-   ```
+**Workflow ที่ถูกต้อง** ต้องประกอบด้วย 3 nodes ขึ้นไป:
+
+```
+[Webhook]  →  [OCR step (เช่น HTTP Request / Code / AI node)]  →  [Respond to Webhook]
+```
+
+#### 1. Webhook node
+
+- **HTTP Method**: `POST`
+- **Path**: ตามที่คุณตั้ง (จะเป็นส่วนหนึ่งของ URL)
+- **Respond**: เลือก **`Using 'Respond to Webhook' Node`** (แนะนำ)
+  - ทางเลือก: **`When Last Node Finishes`** + `Response Data` = `First Entry JSON` ก็ได้
+  - ❌ **ห้ามใช้** `Immediately` — n8n จะตอบ `{"message":"Workflow was started"}` ทันที แล้วประมวลผล background → app เห็นเป็น **bad-format** เพราะไม่มี `markdown`
+- **Binary Data**: เปิด เพื่อรับไฟล์ผ่าน `{{ $binary.file }}`
+
+#### 2. OCR step
+
+นำ `{{ $binary.file }}` ไปประมวลผล (เช่น เรียก OpenAI Vision, Mistral OCR, Tesseract container, ฯลฯ) ให้ได้ field ที่เป็น markdown string เช่น `{{ $json.extractedText }}`
+
+#### 3. Respond to Webhook node
+
+- **Respond With**: `JSON`
+- **Response Body**:
+  ```json
+  {
+    "status": "success",
+    "markdown": "={{ $json.extractedText }}"
+  }
+  ```
+- **Response Code**: `200`
+
+#### ตัวอย่าง error handling
+
+ถ้า OCR step error คุณสามารถต่อ **Error branch** → Respond to Webhook ตัวที่สอง:
+
+```json
+{
+  "status": "error",
+  "error": "={{ $json.error.message }}"
+}
+```
 
 ---
 
 ## 4. Connection test (`/test`)
+
+When the user clicks **Test connection**, the app sends a tiny probe:
+
+```
+POST <your-endpoint>
+Content-Type: application/json
+
+{ "ping": "lovable-ocr-test", "timestamp": "2026-01-01T00:00:00.000Z" }
+```
 
 When the user clicks **Test connection**, the app sends a tiny probe:
 
