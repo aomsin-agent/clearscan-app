@@ -134,10 +134,19 @@ export function OcrPanel() {
   const needsVariable = engine !== "lovable";
   const canRun = !needsVariable || !!selectedVar?.description?.trim();
 
-  // Reset test result when variable/engine changes
+  // Reset test result + reopen settings when variable/engine changes
   useEffect(() => {
     setTestResult(null);
+    setSettingsOpen(true);
   }, [selectedVarId, engine]);
+
+  // Auto-collapse settings after successful test
+  useEffect(() => {
+    if (testResult?.ok) {
+      const t = setTimeout(() => setSettingsOpen(false), 600);
+      return () => clearTimeout(t);
+    }
+  }, [testResult]);
 
   const runConnectionTest = useCallback(async () => {
     const url = selectedVar?.description?.trim();
