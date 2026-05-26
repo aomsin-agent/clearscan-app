@@ -107,3 +107,45 @@ export const runWebhookOcr = createServerFn({ method: "POST" })
     }
     return { text: await res.text() };
   });
+
+/**
+ * Lightweight reachability test for a user-supplied webhook URL.
+ * Sends a tiny JSON probe (no file, no OCR) and reports status + latency.
+ * Runs server-side to bypass browser CORS.
+ */
+const TestSchema = z.object({
+  url: z.string().url(),
+});
+
+export const testWebhook = createServerFn({ method: "POST" })
+  .inputValidator((input) => TestSchema.parse(input))
+  .handler(async ({ data }) => {
+    if (!/^https?:\/\//i.test(data.url)) {
+      return { ok: false, status: 0, latencyMs: 0, error: "URL must start with http(s)://" };
+    }
+    const started = Date.now();
+    try {
+      const res = await fetch(data.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ping: "lovable-ocr-test",
+          timestamp: new Date().toISOString(),
+        }),
+      });
+      const latencyMs = Date.now() - started;
+      return {
+        ok: res.ok,
+        status: res.status,
+        latencyMs,
+        error: res.ok ? null : `Endpoint returned ${res.status}`,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        status: 0,
+        latencyMs: Date.now() - started,
+        error: e instanceof Error ? e.message : "Network error",
+      };
+    }
+  });
