@@ -46,18 +46,21 @@ export type Database = {
       }
       variable: {
         Row: {
+          category: string | null
           created_at: string
           description: string | null
           var_id: string
           variable: string | null
         }
         Insert: {
+          category?: string | null
           created_at?: string
           description?: string | null
           var_id?: string
           variable?: string | null
         }
         Update: {
+          category?: string | null
           created_at?: string
           description?: string | null
           var_id?: string
