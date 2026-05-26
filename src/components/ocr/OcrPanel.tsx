@@ -92,10 +92,12 @@ export function OcrPanel() {
   const [status, setStatus] = useState<Status>("idle");
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<"preview" | "raw">("preview");
-  // Intention: hard UI lock during an in-flight request. `status` already
-  // tracks the lifecycle for display, but `submitting` is the authoritative
-  // input-disabled flag that prevents duplicate network calls / race
-  // conditions while the connection is held open.
+  // Response from webhook / python-api (kind=none = not yet validated)
+  type ResponseKind = "none" | "success" | "bad-format" | "error";
+  const [responseKind, setResponseKind] = useState<ResponseKind>("none");
+  const [responseRaw, setResponseRaw] = useState("");
+  const [responseMessage, setResponseMessage] = useState("");
+  // Intention: hard UI lock during an in-flight request.
   const [submitting, setSubmitting] = useState(false);
 
   const [engine, setEngine] = useState<Engine>("lovable");
