@@ -22,9 +22,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Pagination,
@@ -40,10 +48,27 @@ interface Row {
   var_id: string;
   variable: string | null;
   description: string | null;
+  category: string | null;
   created_at: string;
 }
 
 const PAGE_SIZE = 10;
+
+const CATEGORY_OPTIONS = [
+  { value: "webhook", label: "Webhook" },
+  { value: "python-api", label: "Python API" },
+] as const;
+
+const NONE_VALUE = "__none__";
+
+type FilterValue = "all" | "webhook" | "python-api" | "uncategorized";
+
+const FILTERS: { value: FilterValue; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "webhook", label: "Webhook" },
+  { value: "python-api", label: "Python API" },
+  { value: "uncategorized", label: "Uncategorized" },
+];
 
 // Module-level cache to avoid flicker when switching tabs
 let rowsCache: Row[] | null = null;
@@ -51,6 +76,7 @@ let rowsCache: Row[] | null = null;
 export function VariablePanel() {
   const [rows, setRows] = useState<Row[] | null>(rowsCache);
   const [page, setPage] = useState(1);
+  const [filter, setFilter] = useState<FilterValue>("all");
   const [editing, setEditing] = useState<Row | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Row | null>(null);
@@ -58,7 +84,7 @@ export function VariablePanel() {
   const load = async () => {
     const { data, error } = await supabase
       .from("variable")
-      .select("var_id,variable,description,created_at")
+      .select("var_id,variable,description,category,created_at")
       .order("created_at", { ascending: false });
     if (error) {
       toast.error("Failed to load variables");
@@ -73,16 +99,27 @@ export function VariablePanel() {
     load();
   }, []);
 
-  const pageCount = Math.max(1, Math.ceil((rows?.length ?? 0) / PAGE_SIZE));
-  const paged = useMemo(() => {
+  const filtered = useMemo(() => {
     if (!rows) return [];
+    if (filter === "all") return rows;
+    if (filter === "uncategorized")
+      return rows.filter((r) => !r.category?.trim());
+    return rows.filter((r) => r.category === filter);
+  }, [rows, filter]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paged = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
-    return rows.slice(start, start + PAGE_SIZE);
-  }, [rows, page]);
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, page]);
 
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter]);
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -110,6 +147,41 @@ export function VariablePanel() {
         </Button>
       </div>
 
+      <div className="flex flex-wrap gap-2 rounded-lg border bg-muted/30 p-1">
+        {FILTERS.map((f) => {
+          const active = filter === f.value;
+          const count =
+            rows === null
+              ? 0
+              : f.value === "all"
+                ? rows.length
+                : f.value === "uncategorized"
+                  ? rows.filter((r) => !r.category?.trim()).length
+                  : rows.filter((r) => r.category === f.value).length;
+          return (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setFilter(f.value)}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                active
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f.label}
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] ${
+                  active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="space-y-2.5">
         {rows === null &&
           Array.from({ length: 4 }).map((_, i) => (
@@ -121,9 +193,11 @@ export function VariablePanel() {
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-primary">
               <Database className="h-6 w-6" />
             </div>
-            <h3 className="text-base font-semibold">No variables yet</h3>
+            <h3 className="text-base font-semibold">No variables here</h3>
             <p className="max-w-sm text-sm text-muted-foreground">
-              Click <span className="font-medium text-foreground">Add new variable</span> to create your first entry.
+              {filter === "all"
+                ? "Click Add new variable to create your first entry."
+                : "No variables match this filter."}
             </p>
           </Card>
         )}
@@ -133,12 +207,20 @@ export function VariablePanel() {
             key={r.var_id}
             className="group p-4 transition hover:border-primary/50 hover:shadow-md"
           >
-            {/* Line 1: variable name (full width) + actions */}
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <p className="truncate text-base font-semibold text-foreground">
                   {r.variable ?? "—"}
                 </p>
+                {r.category?.trim() ? (
+                  <Badge variant="secondary" className="shrink-0 font-mono text-[10px]">
+                    {r.category}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="shrink-0 text-[10px] text-muted-foreground">
+                    uncategorized
+                  </Badge>
+                )}
               </div>
               <div className="flex shrink-0 gap-1">
                 <Button
@@ -162,7 +244,6 @@ export function VariablePanel() {
               </div>
             </div>
 
-            {/* Line 2: description + created_at */}
             <div className="mt-1.5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
               <p className="min-w-0 flex-1 text-sm text-muted-foreground">
                 {r.description?.trim() || (
@@ -266,12 +347,14 @@ function VariableDialog({
   const isEdit = !!row;
   const [variable, setVariable] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState<string>(NONE_VALUE);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
       setVariable(row?.variable ?? "");
       setDescription(row?.description ?? "");
+      setCategory(row?.category?.trim() ? row.category : NONE_VALUE);
     }
   }, [open, row]);
 
@@ -281,19 +364,21 @@ function VariableDialog({
       return;
     }
     setSaving(true);
+    const payload = {
+      variable: variable.trim(),
+      description: description.trim() || null,
+      category: category === NONE_VALUE ? null : category,
+    };
     try {
       if (isEdit && row) {
         const { error } = await supabase
           .from("variable")
-          .update({ variable: variable.trim(), description: description.trim() || null })
+          .update(payload)
           .eq("var_id", row.var_id);
         if (error) throw error;
         toast.success("Variable updated");
       } else {
-        const { error } = await supabase.from("variable").insert({
-          variable: variable.trim(),
-          description: description.trim() || null,
-        });
+        const { error } = await supabase.from("variable").insert(payload);
         if (error) throw error;
         toast.success("Variable created");
       }
@@ -326,6 +411,27 @@ function VariableDialog({
               placeholder="e.g. API_BASE_URL"
               autoFocus
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="category">Category</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger id="category">
+                <SelectValue placeholder="Select a category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE_VALUE}>
+                  <span className="text-muted-foreground">Uncategorized</span>
+                </SelectItem>
+                {CATEGORY_OPTIONS.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>
+                    {c.label}{" "}
+                    <span className="ml-1 font-mono text-xs text-muted-foreground">
+                      ({c.value})
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label htmlFor="description">Description</Label>

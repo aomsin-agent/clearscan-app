@@ -53,7 +53,14 @@ interface VarOption {
   var_id: string;
   variable: string | null;
   description: string | null;
+  category: string | null;
 }
+
+const ENGINE_CATEGORY: Record<Engine, string | null> = {
+  lovable: null,
+  webhook: "webhook",
+  selfhosted: "python-api",
+};
 
 const ENGINE_LABEL: Record<Engine, string> = {
   lovable: "Lovable AI Gateway",
@@ -86,17 +93,20 @@ export function OcrPanel() {
 
   const loadVariables = useCallback(async () => {
     setVarsLoading(true);
-    const { data, error } = await supabase
+    const requiredCategory = ENGINE_CATEGORY[engine];
+    let query = supabase
       .from("variable")
-      .select("var_id,variable,description")
+      .select("var_id,variable,description,category")
       .order("created_at", { ascending: false });
+    if (requiredCategory) query = query.eq("category", requiredCategory);
+    const { data, error } = await query;
     setVarsLoading(false);
     if (error) {
       toast.error("Failed to load variables");
       return;
     }
     setVariables(data ?? []);
-  }, []);
+  }, [engine]);
 
   useEffect(() => {
     loadVariables();
@@ -294,6 +304,7 @@ export function OcrPanel() {
                 disabled={submitting}
                 onClick={() => {
                   setEngine(id);
+                  setSelectedVarId("");
                   reset();
                 }}
                 className={`flex items-start gap-3 rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -325,7 +336,11 @@ export function OcrPanel() {
             <div>
               <Label className="text-sm font-semibold text-foreground">Endpoint Variable</Label>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Select a variable containing your destination URL.
+                Showing variables with category{" "}
+                <span className="font-mono font-medium text-foreground">
+                  {ENGINE_CATEGORY[engine]}
+                </span>
+                .
               </p>
             </div>
 
@@ -336,7 +351,7 @@ export function OcrPanel() {
                     <SelectValue
                       placeholder={
                         variables.length === 0
-                          ? "No variables — add one in the Variables tab"
+                          ? `No "${ENGINE_CATEGORY[engine]}" variables — add one in the Variables tab`
                           : "Select a variable…"
                       }
                     />
