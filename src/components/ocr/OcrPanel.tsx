@@ -924,7 +924,3 @@ export function OcrPanel() {
     </div>
   );
 }
-      </div>
-    </div>
-  );
-}
