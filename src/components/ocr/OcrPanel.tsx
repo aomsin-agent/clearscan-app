@@ -759,7 +759,7 @@ export function OcrPanel() {
                 <button
                   type="button"
                   onClick={() => setViewMode("preview")}
-                  disabled={status !== "done" || !text}
+                  disabled={status !== "done" && responseKind === "none"}
                   className={`rounded px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
                     viewMode === "preview"
                       ? "bg-primary text-primary-foreground"
@@ -771,7 +771,7 @@ export function OcrPanel() {
                 <button
                   type="button"
                   onClick={() => setViewMode("raw")}
-                  disabled={status !== "done" || !text}
+                  disabled={status !== "done" && responseKind === "none"}
                   className={`rounded px-2 py-1 text-xs font-medium transition disabled:opacity-50 ${
                     viewMode === "raw"
                       ? "bg-primary text-primary-foreground"
@@ -784,7 +784,7 @@ export function OcrPanel() {
               <Button
                 size="sm"
                 variant={copied ? "secondary" : "default"}
-                disabled={status !== "done" || !text}
+                disabled={responseKind !== "success" || !text}
                 onClick={copy}
               >
                 {copied ? (
@@ -800,35 +800,130 @@ export function OcrPanel() {
             </div>
           </div>
           <div className="relative flex-1 p-4">
+            {/* Processing spinner */}
             {status === "processing" && (
               <div className="flex h-[440px] flex-col items-center justify-center gap-4">
                 <Spinner />
                 <p className="text-sm text-muted-foreground">
-                  {engine === "selfhosted"
-                    ? "Uploading to self-hosted container and waiting for OCR result…"
-                    : `Waiting for response from ${ENGINE_LABEL[engine]}…`}
+                  {engine === "lovable"
+                    ? `Waiting for response from ${ENGINE_LABEL[engine]}…`
+                    : engine === "selfhosted"
+                      ? "Uploading to self-hosted container and waiting for OCR result…"
+                      : `Sending file to ${ENGINE_LABEL[engine]}…`}
                 </p>
               </div>
             )}
-            {status !== "processing" && viewMode === "preview" && text && (
-              <div className="prose prose-sm dark:prose-invert h-[460px] max-w-none overflow-auto rounded-md border bg-background p-4">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+
+            {/* Pre-validate state for webhook / selfhosted */}
+            {status !== "processing" &&
+              engine !== "lovable" &&
+              responseKind === "none" && (
+                <div className="flex h-[460px] flex-col items-center justify-center gap-4 rounded-md border border-dashed bg-muted/20 p-6 text-center">
+                  <div
+                    className="flex h-14 w-14 items-center justify-center rounded-2xl text-primary-foreground"
+                    style={{ background: "var(--gradient-primary)" }}
+                  >
+                    <PlayCircle className="h-7 w-7" />
+                  </div>
+                  <div>
+                    <p className="text-base font-semibold text-foreground">Ready to validate</p>
+                    <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                      File loaded. Click <span className="font-medium">Validate</span> to send it to{" "}
+                      <span className="font-medium text-foreground">{ENGINE_LABEL[engine]}</span> and
+                      see the response.
+                    </p>
+                  </div>
+                  <Button
+                    size="lg"
+                    onClick={runValidate}
+                    disabled={!canRun || submitting}
+                    className="shadow-md"
+                  >
+                    <PlayCircle className="mr-2 h-4 w-4" />
+                    Validate
+                  </Button>
+                </div>
+              )}
+
+            {/* Done: Preview pane */}
+            {status !== "processing" && responseKind !== "none" && viewMode === "preview" && (
+              <div className="flex h-[460px] flex-col gap-3">
+                {responseKind === "success" && text && (
+                  <div className="prose prose-sm dark:prose-invert max-w-none flex-1 overflow-auto rounded-md border bg-background p-4">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                  </div>
+                )}
+                {responseKind === "bad-format" && (
+                  <div className="flex flex-1 flex-col gap-2 overflow-auto rounded-md border border-amber-500/40 bg-amber-500/5 p-4">
+                    <div className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="text-sm font-semibold">Response format invalid</div>
+                    </div>
+                    <p className="text-sm text-foreground">{responseMessage}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Switch to <span className="font-medium">Raw</span> to inspect the full
+                      response. See{" "}
+                      <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                        docs/OCR_BACKEND_CONTRACT.md
+                      </code>{" "}
+                      for the expected shape.
+                    </p>
+                  </div>
+                )}
+                {responseKind === "error" && (
+                  <div className="flex flex-1 flex-col gap-2 overflow-auto rounded-md border border-destructive/40 bg-destructive/5 p-4">
+                    <div className="flex items-start gap-2 text-destructive">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="text-sm font-semibold">Request failed</div>
+                    </div>
+                    <p className="text-sm text-foreground">{responseMessage}</p>
+                    {responseRaw && (
+                      <p className="text-xs text-muted-foreground">
+                        The endpoint replied with a body — switch to{" "}
+                        <span className="font-medium">Raw</span> to view it.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
-            {status !== "processing" && (viewMode === "raw" || !text) && (
+
+            {/* Done: Raw pane */}
+            {status !== "processing" && responseKind !== "none" && viewMode === "raw" && (
               <Textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={
-                  status === "error"
-                    ? "Something went wrong. Try another file or check the endpoint."
-                    : "Extracted text will appear here."
+                value={
+                  responseKind === "success"
+                    ? responseRaw || text
+                    : responseRaw || responseMessage
                 }
-                className="h-[460px] resize-none font-mono text-sm"
+                readOnly
+                placeholder="No response body."
+                className="h-[460px] resize-none font-mono text-xs"
               />
             )}
+
+            {/* Validate again button */}
+            {status !== "processing" &&
+              engine !== "lovable" &&
+              responseKind !== "none" && (
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={runValidate}
+                    disabled={!canRun || submitting}
+                  >
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    Validate again
+                  </Button>
+                </div>
+              )}
           </div>
         </Card>
+      </div>
+    </div>
+  );
+}
       </div>
     </div>
   );
