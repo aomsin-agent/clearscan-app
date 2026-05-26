@@ -212,19 +212,20 @@ export function OcrPanel() {
 
   const onDrop = useCallback(
     (accepted: File[]) => {
+      if (submitting) return;
       if (!canRun) {
         toast.error("Select a variable first");
         return;
       }
-      if (accepted[0]) handleFile(accepted[0]);
+      if (accepted[0]) handleSubmit(accepted[0]);
     },
-    [handleFile, canRun],
+    [handleSubmit, canRun, submitting],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     multiple: false,
-    disabled: !canRun,
+    disabled: !canRun || submitting,
     accept: {
       "image/*": [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"],
       "application/pdf": [".pdf"],
