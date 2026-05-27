@@ -564,7 +564,7 @@ export function OcrPanel() {
               ? "Endpoint not configured"
               : isDragActive
                 ? "Drop your file here"
-                : "Drop a file or click to upload"}
+                : "Drop a file or use the button below"}
           </h2>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
             {!canRun
