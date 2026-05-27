@@ -7,7 +7,6 @@ import {
   Check,
   X,
   Info,
-  Sparkles,
   ChevronLeft,
   ChevronRight,
   Webhook,
@@ -55,14 +54,14 @@ import {
   renderPdfPages,
   type FileMeta,
 } from "@/lib/file-utils";
-import { runOcr, runWebhookOcr, testWebhook } from "@/lib/ocr.functions";
+import { runWebhookOcr, testWebhook } from "@/lib/ocr.functions";
 import { runSelfHostedOcr, testSelfHostedEndpoint, type PythonApiResult } from "@/lib/ocr-client";
 import { PythonApiResultPanel } from "./PythonApiResultPanel";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 
 type Status = "idle" | "processing" | "done" | "error";
-type Engine = "lovable" | "webhook" | "selfhosted";
+type Engine = "webhook" | "selfhosted";
 
 interface VarOption {
   var_id: string;
@@ -71,14 +70,12 @@ interface VarOption {
   category: string | null;
 }
 
-const ENGINE_CATEGORY: Record<Engine, string | null> = {
-  lovable: null,
+const ENGINE_CATEGORY: Record<Engine, string> = {
   webhook: "webhook",
   selfhosted: "python-api",
 };
 
 const ENGINE_LABEL: Record<Engine, string> = {
-  lovable: "Lovable AI Gateway",
   webhook: "Webhook URL",
   selfhosted: "Self-hosted (Docker)",
 };
@@ -102,12 +99,11 @@ export function OcrPanel() {
   // Intention: hard UI lock during an in-flight request.
   const [submitting, setSubmitting] = useState(false);
 
-  const [engine, setEngine] = useState<Engine>("lovable");
+  const [engine, setEngine] = useState<Engine>("webhook");
   const [variables, setVariables] = useState<VarOption[]>([]);
   const [varsLoading, setVarsLoading] = useState(false);
   const [selectedVarId, setSelectedVarId] = useState<string>("");
 
-  const runOcrFn = useServerFn(runOcr);
   const runWebhookFn = useServerFn(runWebhookOcr);
   const testWebhookFn = useServerFn(testWebhook);
 
@@ -140,8 +136,7 @@ export function OcrPanel() {
   }, [loadVariables]);
 
   const selectedVar = variables.find((v) => v.var_id === selectedVarId);
-  const needsVariable = engine !== "lovable";
-  const canRun = !needsVariable || !!selectedVar?.description?.trim();
+  const canRun = !!selectedVar?.description?.trim();
 
   // Reset test result + reopen settings when variable/engine changes
   useEffect(() => {
@@ -225,10 +220,9 @@ export function OcrPanel() {
     [reset],
   );
 
-  // Step 2 (webhook / selfhosted): actually send the file to the endpoint.
+  // Step 2: actually send the file to the endpoint.
   const runValidate = useCallback(async () => {
     if (!file) return;
-    if (engine === "lovable") return;
     const url = selectedVar?.description?.trim();
     if (!url) {
       toast.error("Select a variable that contains the endpoint URL");
@@ -294,53 +288,6 @@ export function OcrPanel() {
     }
   }, [file, engine, selectedVar, runWebhookFn]);
 
-  // Lovable engine: auto-extract on drop (legacy behavior).
-  const runLovableExtract = useCallback(
-    async (f: File) => {
-      reset();
-      setFile(f);
-      setStatus("processing");
-      setSubmitting(true);
-
-      try {
-        let lovableImages: string[] = [];
-        if (f.type.startsWith("image/")) {
-          setPreviewUrl(URL.createObjectURL(f));
-          const m = await readImageMeta(f);
-          setMeta(m);
-          lovableImages = [await fileToDataUrl(f)];
-        } else if (f.type === "application/pdf") {
-          const { dataUrls, pageCount } = await renderPdfPages(f);
-          setMeta({ kind: "pdf", pageCount });
-          setPdfPages(dataUrls);
-          lovableImages = dataUrls;
-        } else {
-          throw new Error("Unsupported file type");
-        }
-
-        const result = await runOcrFn({ data: { images: lovableImages } });
-        setText(result.text);
-        setStatus("done");
-        setResponseKind("success");
-
-        await supabase.from("ocr_history").insert({
-          file_name: f.name,
-          file_type: f.type || "unknown",
-          file_size: f.size,
-          extracted_text: `[${ENGINE_LABEL[engine]}]\n\n${result.text}`,
-        });
-      } catch (e) {
-        console.error(e);
-        const msg = e instanceof Error ? e.message : "OCR failed";
-        toast.error(msg);
-        setStatus("error");
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [reset, runOcrFn, engine],
-  );
-
   const onDrop = useCallback(
     (accepted: File[]) => {
       if (submitting) return;
@@ -349,11 +296,11 @@ export function OcrPanel() {
         return;
       }
       if (!accepted[0]) return;
-      if (engine === "lovable") runLovableExtract(accepted[0]);
-      else loadFile(accepted[0]);
+      loadFile(accepted[0]);
     },
-    [engine, runLovableExtract, loadFile, canRun, submitting],
+    [loadFile, canRun, submitting],
   );
+
 
 
 
@@ -381,7 +328,11 @@ export function OcrPanel() {
   const NoticeBanner = (
     <TooltipProvider delayDuration={150}>
       <div className="flex items-center justify-center gap-2 rounded-full border bg-accent/40 px-3 py-1.5 text-xs text-muted-foreground">
-        <Sparkles className="h-3.5 w-3.5 text-primary" />
+        {engine === "webhook" ? (
+          <Webhook className="h-3.5 w-3.5 text-primary" />
+        ) : (
+          <Server className="h-3.5 w-3.5 text-primary" />
+        )}
         <span>
           OCR engine: <span className="font-medium text-foreground">{ENGINE_LABEL[engine]}</span>
         </span>
@@ -397,10 +348,8 @@ export function OcrPanel() {
             </button>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs text-xs leading-relaxed">
-            {engine === "lovable" &&
-              "OCR powered by Lovable AI Gateway (Google Gemini 2.5 Flash vision). Files are sent to Lovable's AI provider for text extraction."}
             {engine === "webhook" &&
-              "Files are POSTed (server-side) to the URL stored in the selected variable. The endpoint must respond with { text: \"...\" } or plain text."}
+              "Files are POSTed (server-side) to the URL stored in the selected variable. The endpoint must respond with { status: \"success\", markdown: \"…\" }."}
             {engine === "selfhosted" &&
               "Files are POSTed from your browser to the URL in the selected variable (e.g. a local Docker container). Your container must enable CORS."}
           </TooltipContent>
@@ -413,10 +362,9 @@ export function OcrPanel() {
     <Card className="space-y-4 p-4">
       <div>
         <Label className="text-sm font-medium">OCR Engine</Label>
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {(
             [
-              { id: "lovable" as const, icon: Sparkles, label: "Lovable AI", sub: "Gemini Flash" },
               { id: "webhook" as const, icon: Webhook, label: "Webhook", sub: "External URL" },
               { id: "selfhosted" as const, icon: Server, label: "Self-hosted", sub: "Docker / localhost" },
             ]
@@ -455,7 +403,7 @@ export function OcrPanel() {
         </div>
       </div>
 
-      {needsVariable && (
+      {(
         <Collapsible
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
@@ -817,18 +765,15 @@ export function OcrPanel() {
               <div className="flex h-[440px] flex-col items-center justify-center gap-4">
                 <Spinner />
                 <p className="text-sm text-muted-foreground">
-                  {engine === "lovable"
-                    ? `Waiting for response from ${ENGINE_LABEL[engine]}…`
-                    : engine === "selfhosted"
-                      ? "Uploading to self-hosted container and waiting for OCR result…"
-                      : `Sending file to ${ENGINE_LABEL[engine]}…`}
+                  {engine === "selfhosted"
+                    ? "Uploading to self-hosted container and waiting for OCR result…"
+                    : `Sending file to ${ENGINE_LABEL[engine]}…`}
                 </p>
               </div>
             )}
 
-            {/* Pre-validate state for webhook / selfhosted */}
+            {/* Pre-validate state */}
             {status !== "processing" &&
-              engine !== "lovable" &&
               responseKind === "none" && (
                 <div className="flex h-[460px] flex-col items-center justify-center gap-4 rounded-md border border-dashed bg-muted/20 p-6 text-center">
                   <div
@@ -916,7 +861,6 @@ export function OcrPanel() {
 
             {/* Validate again button */}
             {status !== "processing" &&
-              engine !== "lovable" &&
               responseKind !== "none" && (
                 <div className="mt-3 flex justify-end">
                   <Button
