@@ -782,7 +782,9 @@ export function OcrPanel() {
               <div className="flex h-[460px] flex-col gap-3">
                 {responseKind === "success" && text && (
                   <div className="prose prose-sm dark:prose-invert max-w-none flex-1 overflow-auto rounded-md border bg-background p-4">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                    <Suspense fallback={<div className="text-sm text-muted-foreground">Rendering…</div>}>
+                      <MarkdownView>{text}</MarkdownView>
+                    </Suspense>
                   </div>
                 )}
                 {responseKind === "bad-format" && (
