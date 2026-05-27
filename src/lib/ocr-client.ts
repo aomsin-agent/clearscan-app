@@ -40,13 +40,62 @@ function extractMarkdown(payload: unknown): string {
   return JSON.stringify(payload, null, 2);
 }
 
+export type PythonApiFile = {
+  name: string;
+  url: string;
+  mime: string;
+  size?: number;
+};
+
+export type PythonApiResult = {
+  html: string;
+  markdown: string;
+  files: PythonApiFile[];
+  stdout: string;
+};
+
 export type SelfHostedResult = {
   kind: "success" | "bad-format" | "error";
   markdown: string;
   raw: string;
   message: string;
   httpStatus: number;
+  pythonApi?: PythonApiResult;
 };
+
+function parsePythonApi(json: unknown): PythonApiResult {
+  const obj = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+  const html = typeof obj.html === "string" ? obj.html : "";
+  const markdown =
+    typeof obj.markdown === "string"
+      ? obj.markdown
+      : typeof obj.result_markdown === "string"
+        ? obj.result_markdown
+        : "";
+  const stdout =
+    typeof obj.stdout === "string"
+      ? obj.stdout
+      : typeof obj.log === "string"
+        ? obj.log
+        : "";
+  const filesRaw = Array.isArray(obj.files) ? obj.files : [];
+  const files: PythonApiFile[] = filesRaw
+    .map((f): PythonApiFile | null => {
+      if (!f || typeof f !== "object") return null;
+      const r = f as Record<string, unknown>;
+      const name = typeof r.name === "string" ? r.name : "";
+      const url = typeof r.url === "string" ? r.url : "";
+      if (!name || !url) return null;
+      return {
+        name,
+        url,
+        mime: typeof r.mime === "string" ? r.mime : "application/octet-stream",
+        size: typeof r.size === "number" ? r.size : undefined,
+      };
+    })
+    .filter((x): x is PythonApiFile => x !== null);
+  return { html, markdown, files, stdout };
+}
 
 export async function runSelfHostedOcr(params: {
   url: string;
