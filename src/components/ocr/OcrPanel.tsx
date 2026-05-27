@@ -577,8 +577,12 @@ export function OcrPanel() {
               size="lg"
               className="mt-8 shadow-md"
               disabled={submitting}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                openFilePicker();
+              }}
             >
+              <Upload className="mr-2 h-4 w-4" />
               Browse files
             </Button>
           ) : (
