@@ -136,8 +136,7 @@ export function OcrPanel() {
   }, [loadVariables]);
 
   const selectedVar = variables.find((v) => v.var_id === selectedVarId);
-  const needsVariable = engine !== "lovable";
-  const canRun = !needsVariable || !!selectedVar?.description?.trim();
+  const canRun = !!selectedVar?.description?.trim();
 
   // Reset test result + reopen settings when variable/engine changes
   useEffect(() => {
