@@ -141,16 +141,15 @@ export function OcrPanel() {
   const selectedVar = variables.find((v) => v.var_id === selectedVarId);
   const canRun = !!selectedVar?.description?.trim();
 
-  // Reset test result + reopen settings when variable/engine changes
+  // Reset test result + reopen dialog when variable/engine changes
   useEffect(() => {
     setTestResult(null);
-    setSettingsOpen(true);
   }, [selectedVarId, engine]);
 
-  // Auto-collapse settings after successful test
+  // Auto-close dialog after successful test
   useEffect(() => {
     if (testResult?.ok) {
-      const t = setTimeout(() => setSettingsOpen(false), 600);
+      const t = setTimeout(() => setEndpointDialogOpen(false), 600);
       return () => clearTimeout(t);
     }
   }, [testResult]);
