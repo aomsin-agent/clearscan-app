@@ -56,7 +56,8 @@ import {
   type FileMeta,
 } from "@/lib/file-utils";
 import { runOcr, runWebhookOcr, testWebhook } from "@/lib/ocr.functions";
-import { runSelfHostedOcr, testSelfHostedEndpoint } from "@/lib/ocr-client";
+import { runSelfHostedOcr, testSelfHostedEndpoint, type PythonApiResult } from "@/lib/ocr-client";
+import { PythonApiResultPanel } from "./PythonApiResultPanel";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -97,6 +98,7 @@ export function OcrPanel() {
   const [responseKind, setResponseKind] = useState<ResponseKind>("none");
   const [responseRaw, setResponseRaw] = useState("");
   const [responseMessage, setResponseMessage] = useState("");
+  const [pyResult, setPyResult] = useState<PythonApiResult | null>(null);
   // Intention: hard UI lock during an in-flight request.
   const [submitting, setSubmitting] = useState(false);
 
@@ -191,6 +193,7 @@ export function OcrPanel() {
     setResponseKind("none");
     setResponseRaw("");
     setResponseMessage("");
+    setPyResult(null);
   }, [previewUrl]);
 
   // Step 1: load file locally (preview + meta). Does NOT call any endpoint.
@@ -238,6 +241,7 @@ export function OcrPanel() {
     setResponseKind("none");
     setResponseRaw("");
     setResponseMessage("");
+    setPyResult(null);
 
     try {
       let result;
@@ -259,6 +263,11 @@ export function OcrPanel() {
       setResponseKind(result.kind);
       setResponseRaw(result.raw);
       setResponseMessage(result.message);
+      if (engine === "selfhosted") {
+        const py = (result as { pythonApi?: PythonApiResult }).pythonApi;
+        if (py) setPyResult(py);
+      }
+
 
       if (result.kind === "success") {
         setText(result.markdown);
@@ -672,6 +681,8 @@ export function OcrPanel() {
   const isImage = file.type.startsWith("image/");
   const isPdf = file.type === "application/pdf";
   const currentPdfPage = pdfPages[pdfPageIdx];
+  const showPyPanel =
+    engine === "selfhosted" && !!pyResult && responseKind === "success";
 
   return (
     <div className="space-y-6">
@@ -698,7 +709,7 @@ export function OcrPanel() {
         </Button>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className={`grid gap-6 ${showPyPanel ? "lg:grid-cols-1" : "lg:grid-cols-2"}`}>
         <Card className="overflow-hidden">
           <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
             <span className="text-sm font-medium text-muted-foreground">Preview</span>
@@ -751,6 +762,7 @@ export function OcrPanel() {
           </div>
         </Card>
 
+        {!showPyPanel && (
         <Card className="flex flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
             <span className="text-sm font-medium text-muted-foreground">Extracted text</span>
@@ -920,7 +932,16 @@ export function OcrPanel() {
               )}
           </div>
         </Card>
+        )}
       </div>
+
+      {showPyPanel && pyResult && (
+        <PythonApiResultPanel
+          result={pyResult}
+          onValidateAgain={runValidate}
+          submitting={submitting}
+        />
+      )}
     </div>
   );
 }
