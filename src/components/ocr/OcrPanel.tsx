@@ -403,7 +403,7 @@ export function OcrPanel() {
         </div>
       </div>
 
-      {needsVariable && (
+      {(
         <Collapsible
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
