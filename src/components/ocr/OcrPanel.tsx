@@ -263,6 +263,10 @@ export function OcrPanel() {
       setResponseKind(result.kind);
       setResponseRaw(result.raw);
       setResponseMessage(result.message);
+      if (engine === "selfhosted" && "pythonApi" in result && result.pythonApi) {
+        setPyResult(result.pythonApi);
+      }
+
 
       if (result.kind === "success") {
         setText(result.markdown);
