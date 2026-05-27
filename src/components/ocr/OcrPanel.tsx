@@ -299,9 +299,11 @@ export function OcrPanel() {
 
 
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open: openFilePicker } = useDropzone({
     onDrop,
     multiple: false,
+    noClick: true,
+    noKeyboard: true,
     disabled: !canRun || submitting,
     accept: {
       "image/*": [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"],
