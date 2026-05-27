@@ -612,8 +612,9 @@ export function OcrPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-center">{NoticeBanner}</div>
       {EngineSelector}
+      {EndpointDialog}
+
 
       <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
