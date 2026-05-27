@@ -56,7 +56,8 @@ import {
   type FileMeta,
 } from "@/lib/file-utils";
 import { runOcr, runWebhookOcr, testWebhook } from "@/lib/ocr.functions";
-import { runSelfHostedOcr, testSelfHostedEndpoint } from "@/lib/ocr-client";
+import { runSelfHostedOcr, testSelfHostedEndpoint, type PythonApiResult } from "@/lib/ocr-client";
+import { PythonApiResultPanel } from "./PythonApiResultPanel";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 
