@@ -1,10 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { ScanLine, History as HistoryIcon, Database } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OcrPanel } from "@/components/ocr/OcrPanel";
-import { HistoryPanel } from "@/components/history/HistoryPanel";
-import { VariablePanel } from "@/components/variable/VariablePanel";
+
+const HistoryPanel = lazy(() =>
+  import("@/components/history/HistoryPanel").then((m) => ({ default: m.HistoryPanel })),
+);
+const VariablePanel = lazy(() =>
+  import("@/components/variable/VariablePanel").then((m) => ({ default: m.VariablePanel })),
+);
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -19,6 +24,14 @@ export const Route = createFileRoute("/")({
   }),
   component: Index,
 });
+
+function PanelFallback() {
+  return (
+    <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+      Loading…
+    </div>
+  );
+}
 
 function Index() {
   const [tab, setTab] = useState("ocr");
@@ -50,14 +63,18 @@ function Index() {
             <TabTrigger value="variable" label="Variable" Icon={Database} />
           </TabsList>
 
-          <TabsContent value="ocr" forceMount className="mt-6 data-[state=inactive]:hidden">
+          <TabsContent value="ocr" className="mt-6">
             <OcrPanel />
           </TabsContent>
-          <TabsContent value="history" forceMount className="mt-6 data-[state=inactive]:hidden">
-            <HistoryPanel />
+          <TabsContent value="history" className="mt-6">
+            <Suspense fallback={<PanelFallback />}>
+              <HistoryPanel />
+            </Suspense>
           </TabsContent>
-          <TabsContent value="variable" forceMount className="mt-6 data-[state=inactive]:hidden">
-            <VariablePanel />
+          <TabsContent value="variable" className="mt-6">
+            <Suspense fallback={<PanelFallback />}>
+              <VariablePanel />
+            </Suspense>
           </TabsContent>
         </Tabs>
       </main>

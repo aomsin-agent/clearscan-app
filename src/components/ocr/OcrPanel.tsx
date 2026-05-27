@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import {
   Upload,
@@ -56,7 +56,9 @@ import {
 } from "@/lib/file-utils";
 import { runWebhookOcr, testWebhook } from "@/lib/ocr.functions";
 import { runSelfHostedOcr, testSelfHostedEndpoint, type PythonApiResult } from "@/lib/ocr-client";
-import { PythonApiResultPanel } from "./PythonApiResultPanel";
+const PythonApiResultPanel = lazy(() =>
+  import("./PythonApiResultPanel").then((m) => ({ default: m.PythonApiResultPanel })),
+);
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -880,11 +882,13 @@ export function OcrPanel() {
       </div>
 
       {showPyPanel && pyResult && (
-        <PythonApiResultPanel
-          result={pyResult}
-          onValidateAgain={runValidate}
-          submitting={submitting}
-        />
+        <Suspense fallback={null}>
+          <PythonApiResultPanel
+            result={pyResult}
+            onValidateAgain={runValidate}
+            submitting={submitting}
+          />
+        </Suspense>
       )}
     </div>
   );
