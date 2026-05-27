@@ -7,7 +7,6 @@ import {
   Check,
   X,
   Info,
-  Sparkles,
   ChevronLeft,
   ChevronRight,
   Webhook,
