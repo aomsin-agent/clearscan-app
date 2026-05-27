@@ -545,8 +545,8 @@ export function OcrPanel() {
             !canRun
               ? "cursor-not-allowed border-border/60 bg-muted/20"
               : isDragActive
-                ? "cursor-pointer border-primary bg-accent/40 scale-[1.01]"
-                : "cursor-pointer border-border hover:border-primary/60 hover:bg-accent/20"
+                ? "border-primary bg-accent/40 scale-[1.01]"
+                : "border-border"
           }`}
           style={{ boxShadow: isDragActive ? "var(--shadow-elegant)" : undefined }}
         >
