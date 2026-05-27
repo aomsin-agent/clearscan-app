@@ -709,7 +709,7 @@ export function OcrPanel() {
         </Button>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className={`grid gap-6 ${showPyPanel ? "lg:grid-cols-1" : "lg:grid-cols-2"}`}>
         <Card className="overflow-hidden">
           <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
             <span className="text-sm font-medium text-muted-foreground">Preview</span>
