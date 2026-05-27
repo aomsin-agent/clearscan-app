@@ -328,7 +328,11 @@ export function OcrPanel() {
   const NoticeBanner = (
     <TooltipProvider delayDuration={150}>
       <div className="flex items-center justify-center gap-2 rounded-full border bg-accent/40 px-3 py-1.5 text-xs text-muted-foreground">
-        <Sparkles className="h-3.5 w-3.5 text-primary" />
+        {engine === "webhook" ? (
+          <Webhook className="h-3.5 w-3.5 text-primary" />
+        ) : (
+          <Server className="h-3.5 w-3.5 text-primary" />
+        )}
         <span>
           OCR engine: <span className="font-medium text-foreground">{ENGINE_LABEL[engine]}</span>
         </span>
@@ -344,10 +348,8 @@ export function OcrPanel() {
             </button>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs text-xs leading-relaxed">
-            {engine === "lovable" &&
-              "OCR powered by Lovable AI Gateway (Google Gemini 2.5 Flash vision). Files are sent to Lovable's AI provider for text extraction."}
             {engine === "webhook" &&
-              "Files are POSTed (server-side) to the URL stored in the selected variable. The endpoint must respond with { text: \"...\" } or plain text."}
+              "Files are POSTed (server-side) to the URL stored in the selected variable. The endpoint must respond with { status: \"success\", markdown: \"…\" }."}
             {engine === "selfhosted" &&
               "Files are POSTed from your browser to the URL in the selected variable (e.g. a local Docker container). Your container must enable CORS."}
           </TooltipContent>
