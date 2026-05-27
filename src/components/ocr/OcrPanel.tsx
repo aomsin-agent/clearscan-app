@@ -861,7 +861,6 @@ export function OcrPanel() {
 
             {/* Validate again button */}
             {status !== "processing" &&
-              engine !== "lovable" &&
               responseKind !== "none" && (
                 <div className="mt-3 flex justify-end">
                   <Button
