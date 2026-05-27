@@ -539,49 +539,70 @@ export function OcrPanel() {
   if (!file) {
     return (
       <div className="space-y-4">
-        <div className="flex justify-center">{NoticeBanner}</div>
         {EngineSelector}
+        {EndpointDialog}
         <div
-          {...getRootProps()}
+          {...(canRun ? getRootProps() : {})}
           className={`group relative flex min-h-[340px] flex-col items-center justify-center rounded-3xl border-2 border-dashed bg-card p-12 text-center transition-all ${
             !canRun
-              ? "cursor-not-allowed opacity-60"
+              ? "cursor-not-allowed border-border/60 bg-muted/20"
               : isDragActive
                 ? "cursor-pointer border-primary bg-accent/40 scale-[1.01]"
                 : "cursor-pointer border-border hover:border-primary/60 hover:bg-accent/20"
           }`}
           style={{ boxShadow: isDragActive ? "var(--shadow-elegant)" : undefined }}
         >
-          <input {...getInputProps()} />
+          {canRun && <input {...getInputProps()} />}
           <div
-            className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl text-primary-foreground transition-transform group-hover:scale-105"
-            style={{ background: "var(--gradient-primary)" }}
+            className={`mb-6 flex h-20 w-20 items-center justify-center rounded-2xl transition-transform group-hover:scale-105 ${
+              canRun ? "text-primary-foreground" : "bg-muted text-muted-foreground"
+            }`}
+            style={canRun ? { background: "var(--gradient-primary)" } : undefined}
           >
-            <Upload className="h-9 w-9" />
+            {canRun ? <Upload className="h-9 w-9" /> : <Lock className="h-9 w-9" />}
           </div>
           <h2 className="text-2xl font-semibold text-foreground">
             {!canRun
-              ? "Select a variable to continue"
+              ? "Endpoint not configured"
               : isDragActive
                 ? "Drop your file here"
                 : "Drop a file or click to upload"}
           </h2>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Images (PNG, JPG, WebP) and PDFs are supported.
+            {!canRun
+              ? `Open Endpoint settings and pick a ${ENGINE_CATEGORY[engine]} variable before uploading.`
+              : "Images (PNG, JPG, WebP) and PDFs are supported."}
           </p>
-          <Button
-            type="button"
-            size="lg"
-            className="mt-8 shadow-md"
-            disabled={!canRun || submitting}
-            onClick={(e) => e.stopPropagation()}
-          >
-            Browse files
-          </Button>
+          {canRun ? (
+            <Button
+              type="button"
+              size="lg"
+              className="mt-8 shadow-md"
+              disabled={submitting}
+              onClick={(e) => e.stopPropagation()}
+            >
+              Browse files
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="lg"
+              variant="outline"
+              className="mt-8"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEndpointDialogOpen(true);
+              }}
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              Open endpoint settings
+            </Button>
+          )}
         </div>
       </div>
     );
   }
+
 
   const isImage = file.type.startsWith("image/");
   const isPdf = file.type === "application/pdf";
