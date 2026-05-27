@@ -288,53 +288,6 @@ export function OcrPanel() {
     }
   }, [file, engine, selectedVar, runWebhookFn]);
 
-  // Lovable engine: auto-extract on drop (legacy behavior).
-  const runLovableExtract = useCallback(
-    async (f: File) => {
-      reset();
-      setFile(f);
-      setStatus("processing");
-      setSubmitting(true);
-
-      try {
-        let lovableImages: string[] = [];
-        if (f.type.startsWith("image/")) {
-          setPreviewUrl(URL.createObjectURL(f));
-          const m = await readImageMeta(f);
-          setMeta(m);
-          lovableImages = [await fileToDataUrl(f)];
-        } else if (f.type === "application/pdf") {
-          const { dataUrls, pageCount } = await renderPdfPages(f);
-          setMeta({ kind: "pdf", pageCount });
-          setPdfPages(dataUrls);
-          lovableImages = dataUrls;
-        } else {
-          throw new Error("Unsupported file type");
-        }
-
-        const result = await runOcrFn({ data: { images: lovableImages } });
-        setText(result.text);
-        setStatus("done");
-        setResponseKind("success");
-
-        await supabase.from("ocr_history").insert({
-          file_name: f.name,
-          file_type: f.type || "unknown",
-          file_size: f.size,
-          extracted_text: `[${ENGINE_LABEL[engine]}]\n\n${result.text}`,
-        });
-      } catch (e) {
-        console.error(e);
-        const msg = e instanceof Error ? e.message : "OCR failed";
-        toast.error(msg);
-        setStatus("error");
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [reset, runOcrFn, engine],
-  );
-
   const onDrop = useCallback(
     (accepted: File[]) => {
       if (submitting) return;
@@ -343,11 +296,11 @@ export function OcrPanel() {
         return;
       }
       if (!accepted[0]) return;
-      if (engine === "lovable") runLovableExtract(accepted[0]);
-      else loadFile(accepted[0]);
+      loadFile(accepted[0]);
     },
-    [engine, runLovableExtract, loadFile, canRun, submitting],
+    [loadFile, canRun, submitting],
   );
+
 
 
 
