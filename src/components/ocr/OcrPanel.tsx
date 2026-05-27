@@ -69,7 +69,7 @@ interface VarOption {
 
 const ENGINE_CATEGORY: Record<Engine, string> = {
   webhook: "webhook",
-  selfhosted: "Python-API",
+  selfhosted: "python-api",
 };
 
 const ENGINE_LABEL: Record<Engine, string> = {
