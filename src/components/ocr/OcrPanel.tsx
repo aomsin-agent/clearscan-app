@@ -362,10 +362,9 @@ export function OcrPanel() {
     <Card className="space-y-4 p-4">
       <div>
         <Label className="text-sm font-medium">OCR Engine</Label>
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {(
             [
-              { id: "lovable" as const, icon: Sparkles, label: "Lovable AI", sub: "Gemini Flash" },
               { id: "webhook" as const, icon: Webhook, label: "Webhook", sub: "External URL" },
               { id: "selfhosted" as const, icon: Server, label: "Self-hosted", sub: "Docker / localhost" },
             ]
