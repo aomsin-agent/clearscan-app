@@ -220,10 +220,9 @@ export function OcrPanel() {
     [reset],
   );
 
-  // Step 2 (webhook / selfhosted): actually send the file to the endpoint.
+  // Step 2: actually send the file to the endpoint.
   const runValidate = useCallback(async () => {
     if (!file) return;
-    if (engine === "lovable") return;
     const url = selectedVar?.description?.trim();
     if (!url) {
       toast.error("Select a variable that contains the endpoint URL");
