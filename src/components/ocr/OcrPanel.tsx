@@ -193,6 +193,7 @@ export function OcrPanel() {
     setResponseKind("none");
     setResponseRaw("");
     setResponseMessage("");
+    setPyResult(null);
   }, [previewUrl]);
 
   // Step 1: load file locally (preview + meta). Does NOT call any endpoint.
