@@ -299,9 +299,11 @@ export function OcrPanel() {
 
 
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open: openFilePicker } = useDropzone({
     onDrop,
     multiple: false,
+    noClick: true,
+    noKeyboard: true,
     disabled: !canRun || submitting,
     accept: {
       "image/*": [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"],
@@ -543,8 +545,8 @@ export function OcrPanel() {
             !canRun
               ? "cursor-not-allowed border-border/60 bg-muted/20"
               : isDragActive
-                ? "cursor-pointer border-primary bg-accent/40 scale-[1.01]"
-                : "cursor-pointer border-border hover:border-primary/60 hover:bg-accent/20"
+                ? "border-primary bg-accent/40 scale-[1.01]"
+                : "border-border"
           }`}
           style={{ boxShadow: isDragActive ? "var(--shadow-elegant)" : undefined }}
         >
@@ -562,7 +564,7 @@ export function OcrPanel() {
               ? "Endpoint not configured"
               : isDragActive
                 ? "Drop your file here"
-                : "Drop a file or click to upload"}
+                : "Drop a file or use the button below"}
           </h2>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
             {!canRun
@@ -575,8 +577,12 @@ export function OcrPanel() {
               size="lg"
               className="mt-8 shadow-md"
               disabled={submitting}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                openFilePicker();
+              }}
             >
+              <Upload className="mr-2 h-4 w-4" />
               Browse files
             </Button>
           ) : (
