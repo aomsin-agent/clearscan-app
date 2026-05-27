@@ -98,6 +98,7 @@ export function OcrPanel() {
   const [responseKind, setResponseKind] = useState<ResponseKind>("none");
   const [responseRaw, setResponseRaw] = useState("");
   const [responseMessage, setResponseMessage] = useState("");
+  const [pyResult, setPyResult] = useState<PythonApiResult | null>(null);
   // Intention: hard UI lock during an in-flight request.
   const [submitting, setSubmitting] = useState(false);
 
