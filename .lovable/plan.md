@@ -1,80 +1,36 @@
-## เป้าหมาย
+## ปัญหา
 
-ปรับ layout ของหน้าเว็บให้ดู clean ขึ้น โดย:
-1. ย้าย tab bar (OCR/History/Variable) ไปอยู่บนขวาในรูป **dropdown menu** เดียว
-2. ลบ NoticeBanner ("OCR engine: Webhook URL ⓘ") ที่อยู่ตรงกลางก่อน container OCR engine
-3. ยุบ container "Endpoint settings" ใหญ่ ๆ ให้กลายเป็น **modal (Dialog)** ที่กลางจอ เปิดด้วยปุ่ม icon ⚙️ ข้าง ๆ ปุ่ม engine tab
-4. ถ้ายังไม่ได้เลือก endpoint (variable) → กดเลือก/ลากไฟล์ไม่ได้ (lock dropzone + แสดงข้อความบอกให้ตั้งค่าก่อน)
+กดปุ่ม Browse แล้วต้องรอสักครู่ก่อน native file picker จะเด้งขึ้น เกิดจาก main thread ของ React ถูกบล็อกด้วยงาน sync ที่เกิดขึ้นรอบ ๆ การ click
 
-ไม่แตะ business logic, server function, Supabase contract — เป็นงาน UI/presentation ล้วน ๆ
+## สาเหตุ (จากการอ่านโค้ด `src/components/ocr/OcrPanel.tsx`)
 
-## ไฟล์ที่แก้
+1. **`react-markdown` + `remark-gfm` ถูก import ที่ top-level** ของ `OcrPanel.tsx` (บรรทัด 30–31) ทั้งที่ใช้แสดงผลเฉพาะ "หลังจาก OCR สำเร็จ" เท่านั้น → bundle ของ tab OCR หนักขึ้นมาก, parse/eval ตอน mount นาน
+2. **`EngineSelector` / dropzone props ถูกสร้างใหม่ทุก render** — ทุกครั้งที่ state เปลี่ยน (รวม `varsLoading`, `testResult`, ฯลฯ) `useDropzone` จะ recompute และ rebind handlers
+3. **`loadVariables` ยิงซ้ำตอน mount** (React StrictMode dev → ดูจาก network logs มี 2 calls /webhook ติด ๆ กัน) ทำให้ตอนผู้ใช้กดครั้งแรก main thread ยัง busy รอ promise/setState ของ Supabase
+4. **`PythonApiResultPanel` lazy แล้ว** แต่ panel หลักยังตึงเพราะ react-markdown bundle ใหญ่กว่า
 
-### 1. `src/routes/index.tsx`
-- ลบ `<TabsList>` ที่อยู่ใต้ header
-- ย้ายตัว tab switcher ขึ้นไปอยู่ใน `<header>` ด้านขวา ในรูป **`DropdownMenu`** (จาก `@/components/ui/dropdown-menu`):
-  - ปุ่ม trigger: ปุ่ม outline แสดง icon + ชื่อ tab ปัจจุบัน + chevron-down
-  - items: 3 รายการ (OCR / History / Variable) แต่ละอันมี icon ของตัวเอง คลิกแล้ว `setTab(...)`
-- คง `<Tabs value={tab}>` + `<TabsContent>` 3 ตัวเหมือนเดิม (เพราะ Radix Tabs ยังทำงานได้แม้ไม่มี TabsList)
-- ลบ component `TabTrigger` ที่ไม่ใช้แล้ว
+## แนวทางแก้
 
-### 2. `src/components/ocr/OcrPanel.tsx`
-- **ลบ NoticeBanner ออกทั้งหมด** (constant + การเรียกใช้ทั้งสองที่: บรรทัด 587 และ 639)
-- เปลี่ยน engine selector จาก grid 2 card → แถวเล็ก ๆ ที่ด้านบน: ปุ่ม segment "Webhook | Self-hosted" + ปุ่ม icon ⚙️ **Endpoint settings** อยู่ขวาสุดแถวเดียวกัน (ปุ่ม icon เปิด modal)
-- ย้าย UI ภายใน `Collapsible` (variable dropdown + refresh + test + status + current value + footer hint) เข้าไปอยู่ใน `<Dialog>` (จาก `@/components/ui/dialog`):
-  - `open` state ใหม่: `endpointDialogOpen`
-  - Trigger คือปุ่ม icon ⚙️; กดแล้วเปิด dialog กลางจอ
-  - DialogContent มี title "Endpoint settings" + badge category, เนื้อหาเดิม (Select variable, Refresh, Test, status, current URL, hint)
-  - มีปุ่ม "Done" / X ปิด dialog
-- ลบ `Collapsible` / `settingsOpen` / auto-collapse useEffect ออก (ไม่ต้องใช้แล้ว)
-- **lock dropzone จนกว่า endpoint จะถูกเลือก**:
-  - `canRun` (= มี `selectedVar.description`) ยังเป็นเงื่อนไขเดิมที่ disable dropzone อยู่แล้ว → ดี
-  - เพิ่ม empty state ที่ชัดขึ้นในกล่อง dropzone: ถ้า `!canRun` แสดงไอคอน lock + ข้อความ "เลือก endpoint ก่อนเริ่มอัปโหลด" + ปุ่ม **"Open endpoint settings"** ที่เปิด modal เดียวกัน (แทนปุ่ม "Browse files")
-  - ปุ่ม "Browse files" จะโผล่ก็ต่อเมื่อ `canRun` แล้วเท่านั้น
+### 1. Lazy-load `react-markdown` (ผลกระทบสูงสุด)
+สร้าง wrapper component `MarkdownView.tsx` ที่ import `react-markdown` + `remark-gfm` ข้างใน แล้วใน `OcrPanel.tsx` ใช้ `lazy(() => import("./MarkdownView"))` + `<Suspense>` เฉพาะตอน `status === "done"` และ `viewMode === "preview"` — ตัด ~100KB ออกจาก initial chunk ของหน้า OCR
 
-### 3. ไม่ต้องแตะ
-- `HistoryPanel`, `VariablePanel`, `PythonApiResultPanel`
-- `src/lib/ocr.functions.ts`, `ocr-client.ts`
-- Supabase schema / docs
+### 2. Memoize handlers / selector
+- ห่อ `EngineSelector` ด้วย `useMemo` หรือแยกเป็น component ลูกที่รับ props
+- ย้าย dropzone options ไป constant นอก component, ทำให้ `useDropzone` ไม่ rebind ทุก render
 
-## รายละเอียดเทคนิค
+### 3. ลด re-render rounds รอบ ๆ การกดปุ่ม
+- รวม state ที่เปลี่ยนพร้อมกัน (เช่น preview-related) ด้วย `useReducer` หรือ batch ผ่าน single setter object — ลด commit time ใน React 19
 
-- `DropdownMenu` มีอยู่แล้วใน `src/components/ui/dropdown-menu.tsx`
-- `Dialog` มีอยู่แล้วใน `src/components/ui/dialog.tsx`
-- เก็บ behavior เดิมไว้: auto-close dialog หลัง test ผ่าน (success) เพื่อให้ flow ลื่นเหมือนเดิม (port logic จาก `setSettingsOpen(false)` เป็น `setEndpointDialogOpen(false)`)
-- เมื่อเปลี่ยน engine → reset `selectedVarId` และเปิด dialog อัตโนมัติ (เหมือนเดิม)
-- ทุก state, callback, server-fn ทำงานเหมือนเดิมหมด
+### 4. (ทางเลือก) Preload pdfjs worker
+ถ้าผู้ใช้แตะไฟล์ PDF บ่อย เพิ่ม `<link rel="modulepreload">` ผ่าน route `head().links` ในหน้า `/` เพื่อให้ดาวน์โหลดล่วงหน้า (ไม่บังคับ — pdfjs lazy อยู่แล้ว และไม่กระทบเวลาเปิด file picker)
 
-## โครงหน้า OCR ใหม่ (ASCII)
+## ไฟล์ที่จะแก้
 
-```text
-┌──────────────────────────────── header ────────────────────────────────┐
-│  [logo] OCR Studio                            [▾ OCR ]   ← dropdown   │
-└────────────────────────────────────────────────────────────────────────┘
+- `src/components/ocr/MarkdownView.tsx` (สร้างใหม่)
+- `src/components/ocr/OcrPanel.tsx` (เปลี่ยน import เป็น lazy + memoize)
 
-   ┌── Engine ──────────────────────────────────────────────────┐
-   │  ( Webhook )  ( Self-hosted )                       [⚙️]   │  ← เปิด modal
-   └────────────────────────────────────────────────────────────┘
+## วิธีตรวจสอบหลังแก้
 
-   ┌── Dropzone ────────────────────────────────────────────────┐
-   │       [⬆️]  Drop a file or click to upload                 │
-   │              (ถ้ายังไม่เลือก endpoint → [🔒] + ปุ่มเปิด modal) │
-   └────────────────────────────────────────────────────────────┘
-```
-
-Modal (เปิดเมื่อกด ⚙️):
-```text
-   ┌─ Endpoint settings  [webhook] ──────────────────[X]─┐
-   │  [ Select variable… ▾ ]  [⟳]  [ Test ]  status      │
-   │  [ 🔗 https://your-endpoint  ●green ]               │
-   │  ⓘ Manage variables in the Variables tab            │
-   └─────────────────────────────────────────────────────┘
-```
-
-## ตรวจสอบหลังแก้
-
-- กดเปลี่ยน tab ผ่าน dropdown ขวาบน → เปลี่ยนเนื้อหาได้ถูกต้อง
-- ไม่มี NoticeBanner กลางจออีก
-- กด ⚙️ → modal เปิดกลางจอ, ทำงาน select/test ได้
-- ก่อนเลือก endpoint → dropzone ถูก lock, ไม่สามารถเปิด file picker ได้, ปุ่มที่เห็นคือ "Open endpoint settings"
-- หลังเลือก endpoint → ปุ่ม "Browse files" กลับมา, ลาก/อัปไฟล์ได้ปกติ
+1. รัน `browser--performance_profile` / `start_profiling` ระหว่างคลิก Browse → ดู long task ลดลง
+2. เช็ค initial JS chunk ของ route `/` มีขนาดลดลง (react-markdown ออกจาก main chunk)
+3. กด Browse ทดสอบ — file picker ต้องเด้งขึ้นทันที
