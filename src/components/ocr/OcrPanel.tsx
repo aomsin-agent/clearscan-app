@@ -765,11 +765,9 @@ export function OcrPanel() {
               <div className="flex h-[440px] flex-col items-center justify-center gap-4">
                 <Spinner />
                 <p className="text-sm text-muted-foreground">
-                  {engine === "lovable"
-                    ? `Waiting for response from ${ENGINE_LABEL[engine]}…`
-                    : engine === "selfhosted"
-                      ? "Uploading to self-hosted container and waiting for OCR result…"
-                      : `Sending file to ${ENGINE_LABEL[engine]}…`}
+                  {engine === "selfhosted"
+                    ? "Uploading to self-hosted container and waiting for OCR result…"
+                    : `Sending file to ${ENGINE_LABEL[engine]}…`}
                 </p>
               </div>
             )}
