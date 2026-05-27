@@ -681,6 +681,8 @@ export function OcrPanel() {
   const isImage = file.type.startsWith("image/");
   const isPdf = file.type === "application/pdf";
   const currentPdfPage = pdfPages[pdfPageIdx];
+  const showPyPanel =
+    engine === "selfhosted" && !!pyResult && responseKind === "success";
 
   return (
     <div className="space-y-6">
