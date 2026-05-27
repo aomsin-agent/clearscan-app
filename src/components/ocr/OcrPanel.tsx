@@ -113,7 +113,7 @@ export function OcrPanel() {
   type TestResult = { ok: boolean; status: number; latencyMs: number; error: string | null };
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(true);
+  const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
 
 
 
