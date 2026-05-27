@@ -191,7 +191,12 @@ export async function runSelfHostedOcr(params: {
   }
 
   const md = extractMarkdown(json);
-  const recognised = md && md !== JSON.stringify(json, null, 2);
+  const pythonApi = parsePythonApi(json);
+  const recognised =
+    (md && md !== JSON.stringify(json, null, 2)) ||
+    !!pythonApi.html ||
+    !!pythonApi.stdout ||
+    pythonApi.files.length > 0;
   if (!recognised) {
     return {
       kind: "bad-format",
@@ -200,9 +205,17 @@ export async function runSelfHostedOcr(params: {
       message:
         'Endpoint received the file, but response format is invalid. Expected `{ status: "success", markdown: "…" }`.',
       httpStatus: res.status,
+      pythonApi,
     };
   }
-  return { kind: "success", markdown: md, raw, message: "", httpStatus: res.status };
+  return {
+    kind: "success",
+    markdown: md || pythonApi.markdown,
+    raw,
+    message: "",
+    httpStatus: res.status,
+    pythonApi,
+  };
 }
 
 /**
