@@ -61,7 +61,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 
 type Status = "idle" | "processing" | "done" | "error";
-type Engine = "lovable" | "webhook" | "selfhosted";
+type Engine = "webhook" | "selfhosted";
 
 interface VarOption {
   var_id: string;
@@ -70,14 +70,12 @@ interface VarOption {
   category: string | null;
 }
 
-const ENGINE_CATEGORY: Record<Engine, string | null> = {
-  lovable: null,
+const ENGINE_CATEGORY: Record<Engine, string> = {
   webhook: "webhook",
   selfhosted: "python-api",
 };
 
 const ENGINE_LABEL: Record<Engine, string> = {
-  lovable: "Lovable AI Gateway",
   webhook: "Webhook URL",
   selfhosted: "Self-hosted (Docker)",
 };
@@ -101,12 +99,11 @@ export function OcrPanel() {
   // Intention: hard UI lock during an in-flight request.
   const [submitting, setSubmitting] = useState(false);
 
-  const [engine, setEngine] = useState<Engine>("lovable");
+  const [engine, setEngine] = useState<Engine>("webhook");
   const [variables, setVariables] = useState<VarOption[]>([]);
   const [varsLoading, setVarsLoading] = useState(false);
   const [selectedVarId, setSelectedVarId] = useState<string>("");
 
-  const runOcrFn = useServerFn(runOcr);
   const runWebhookFn = useServerFn(runWebhookOcr);
   const testWebhookFn = useServerFn(testWebhook);
 
