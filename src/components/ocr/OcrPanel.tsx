@@ -241,6 +241,7 @@ export function OcrPanel() {
     setResponseKind("none");
     setResponseRaw("");
     setResponseMessage("");
+    setPyResult(null);
 
     try {
       let result;
