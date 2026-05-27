@@ -1,30 +1,80 @@
-## สาเหตุ
+## เป้าหมาย
 
-ที่ `src/routes/index.tsx` ทั้งสาม `TabsContent` (OCR, History, Variable) ใช้ `forceMount` ทำให้ **mount พร้อมกันทั้งสาม panel ตั้งแต่หน้าโหลดครั้งแรก**:
+ปรับ layout ของหน้าเว็บให้ดู clean ขึ้น โดย:
+1. ย้าย tab bar (OCR/History/Variable) ไปอยู่บนขวาในรูป **dropdown menu** เดียว
+2. ลบ NoticeBanner ("OCR engine: Webhook URL ⓘ") ที่อยู่ตรงกลางก่อน container OCR engine
+3. ยุบ container "Endpoint settings" ใหญ่ ๆ ให้กลายเป็น **modal (Dialog)** ที่กลางจอ เปิดด้วยปุ่ม icon ⚙️ ข้าง ๆ ปุ่ม engine tab
+4. ถ้ายังไม่ได้เลือก endpoint (variable) → กดเลือก/ลากไฟล์ไม่ได้ (lock dropzone + แสดงข้อความบอกให้ตั้งค่าก่อน)
 
-- `OcrPanel` — import ก้อนใหญ่แบบ static (`react-markdown`, `remark-gfm`, `react-dropzone`, `PythonApiResultPanel`, `file-utils` ที่มี pdfjs) และยิง Supabase query โหลด variables ตอน mount
-- `HistoryPanel` — ยิง Supabase query `ocr_history` ตอน mount
-- `VariablePanel` — ยิง Supabase query `variable` ตอน mount (เป็นไฟล์ใหญ่ ~458 บรรทัด)
-
-ผลคือเบราว์เซอร์ต้อง parse + render ทุก panel + รอ network 3 ก้อนพร้อมกันก่อนที่ main thread จะว่างพอให้ Radix Tabs ตอบสนองการคลิก ทำให้คลิกเปลี่ยน tab หรือกด explore ไฟล์ "ค้าง" ไปสองสามวินาทีหลังเปิดเว็บ
-
-## แนวทางแก้
-
-1. **ถอด `forceMount` ออก** — ให้แค่ tab ที่ active เท่านั้นที่ mount จริง การสลับ tab จะ unmount panel เก่า (state จะ reset แต่ปัจจุบัน OcrPanel ก็ไม่ persist อะไรข้าม tab อยู่แล้ว, HistoryPanel มี `historyCache` module-level cache ป้องกัน flicker อยู่แล้ว)
-2. **`React.lazy` + `Suspense`** สำหรับ `HistoryPanel` และ `VariablePanel` เพื่อไม่ให้ JS ของสอง panel นี้ถูก parse จนกว่าผู้ใช้กดเข้า tab จริง ๆ
-3. **เพิ่ม `historyCache`-style module cache** ให้ `VariablePanel` (ถ้าจำเป็น) เพื่อกัน flicker เวลาสลับ tab กลับมา — ตรวจดูก่อนว่ามีอยู่แล้วหรือไม่
-4. **(เลือกได้) lazy-load `PythonApiResultPanel`** ภายใน `OcrPanel` ด้วย `React.lazy` เพื่อลดน้ำหนัก initial bundle ของ tab OCR
-
-ไม่แตะ business logic / Supabase contract / UI ของแต่ละ panel
+ไม่แตะ business logic, server function, Supabase contract — เป็นงาน UI/presentation ล้วน ๆ
 
 ## ไฟล์ที่แก้
 
-- `src/routes/index.tsx` — ลบ `forceMount`, ใช้ `React.lazy` + `Suspense` สำหรับ `HistoryPanel` / `VariablePanel`, ใส่ fallback เล็ก ๆ (skeleton หรือ spinner)
-- `src/components/ocr/OcrPanel.tsx` — เปลี่ยน import `PythonApiResultPanel` เป็น `lazy()` และห่อด้วย `<Suspense>` ตรงจุดใช้งาน
-- `src/components/variable/VariablePanel.tsx` — (เลือกได้) เพิ่ม module-level cache แบบเดียวกับ HistoryPanel
+### 1. `src/routes/index.tsx`
+- ลบ `<TabsList>` ที่อยู่ใต้ header
+- ย้ายตัว tab switcher ขึ้นไปอยู่ใน `<header>` ด้านขวา ในรูป **`DropdownMenu`** (จาก `@/components/ui/dropdown-menu`):
+  - ปุ่ม trigger: ปุ่ม outline แสดง icon + ชื่อ tab ปัจจุบัน + chevron-down
+  - items: 3 รายการ (OCR / History / Variable) แต่ละอันมี icon ของตัวเอง คลิกแล้ว `setTab(...)`
+- คง `<Tabs value={tab}>` + `<TabsContent>` 3 ตัวเหมือนเดิม (เพราะ Radix Tabs ยังทำงานได้แม้ไม่มี TabsList)
+- ลบ component `TabTrigger` ที่ไม่ใช้แล้ว
+
+### 2. `src/components/ocr/OcrPanel.tsx`
+- **ลบ NoticeBanner ออกทั้งหมด** (constant + การเรียกใช้ทั้งสองที่: บรรทัด 587 และ 639)
+- เปลี่ยน engine selector จาก grid 2 card → แถวเล็ก ๆ ที่ด้านบน: ปุ่ม segment "Webhook | Self-hosted" + ปุ่ม icon ⚙️ **Endpoint settings** อยู่ขวาสุดแถวเดียวกัน (ปุ่ม icon เปิด modal)
+- ย้าย UI ภายใน `Collapsible` (variable dropdown + refresh + test + status + current value + footer hint) เข้าไปอยู่ใน `<Dialog>` (จาก `@/components/ui/dialog`):
+  - `open` state ใหม่: `endpointDialogOpen`
+  - Trigger คือปุ่ม icon ⚙️; กดแล้วเปิด dialog กลางจอ
+  - DialogContent มี title "Endpoint settings" + badge category, เนื้อหาเดิม (Select variable, Refresh, Test, status, current URL, hint)
+  - มีปุ่ม "Done" / X ปิด dialog
+- ลบ `Collapsible` / `settingsOpen` / auto-collapse useEffect ออก (ไม่ต้องใช้แล้ว)
+- **lock dropzone จนกว่า endpoint จะถูกเลือก**:
+  - `canRun` (= มี `selectedVar.description`) ยังเป็นเงื่อนไขเดิมที่ disable dropzone อยู่แล้ว → ดี
+  - เพิ่ม empty state ที่ชัดขึ้นในกล่อง dropzone: ถ้า `!canRun` แสดงไอคอน lock + ข้อความ "เลือก endpoint ก่อนเริ่มอัปโหลด" + ปุ่ม **"Open endpoint settings"** ที่เปิด modal เดียวกัน (แทนปุ่ม "Browse files")
+  - ปุ่ม "Browse files" จะโผล่ก็ต่อเมื่อ `canRun` แล้วเท่านั้น
+
+### 3. ไม่ต้องแตะ
+- `HistoryPanel`, `VariablePanel`, `PythonApiResultPanel`
+- `src/lib/ocr.functions.ts`, `ocr-client.ts`
+- Supabase schema / docs
+
+## รายละเอียดเทคนิค
+
+- `DropdownMenu` มีอยู่แล้วใน `src/components/ui/dropdown-menu.tsx`
+- `Dialog` มีอยู่แล้วใน `src/components/ui/dialog.tsx`
+- เก็บ behavior เดิมไว้: auto-close dialog หลัง test ผ่าน (success) เพื่อให้ flow ลื่นเหมือนเดิม (port logic จาก `setSettingsOpen(false)` เป็น `setEndpointDialogOpen(false)`)
+- เมื่อเปลี่ยน engine → reset `selectedVarId` และเปิด dialog อัตโนมัติ (เหมือนเดิม)
+- ทุก state, callback, server-fn ทำงานเหมือนเดิมหมด
+
+## โครงหน้า OCR ใหม่ (ASCII)
+
+```text
+┌──────────────────────────────── header ────────────────────────────────┐
+│  [logo] OCR Studio                            [▾ OCR ]   ← dropdown   │
+└────────────────────────────────────────────────────────────────────────┘
+
+   ┌── Engine ──────────────────────────────────────────────────┐
+   │  ( Webhook )  ( Self-hosted )                       [⚙️]   │  ← เปิด modal
+   └────────────────────────────────────────────────────────────┘
+
+   ┌── Dropzone ────────────────────────────────────────────────┐
+   │       [⬆️]  Drop a file or click to upload                 │
+   │              (ถ้ายังไม่เลือก endpoint → [🔒] + ปุ่มเปิด modal) │
+   └────────────────────────────────────────────────────────────┘
+```
+
+Modal (เปิดเมื่อกด ⚙️):
+```text
+   ┌─ Endpoint settings  [webhook] ──────────────────[X]─┐
+   │  [ Select variable… ▾ ]  [⟳]  [ Test ]  status      │
+   │  [ 🔗 https://your-endpoint  ●green ]               │
+   │  ⓘ Manage variables in the Variables tab            │
+   └─────────────────────────────────────────────────────┘
+```
 
 ## ตรวจสอบหลังแก้
 
-- เปิดหน้าเว็บใหม่ → คลิกสลับ tab OCR/History/Variable ได้ทันที
-- กด "explore" (เปิด dropzone / file picker) ของ OCR ทำงานได้ทันทีไม่ต้องรอ
-- เปิด Network ดู: Supabase query ของ History/Variable ต้องไม่ยิงจนกว่าจะกดเข้า tab นั้น
+- กดเปลี่ยน tab ผ่าน dropdown ขวาบน → เปลี่ยนเนื้อหาได้ถูกต้อง
+- ไม่มี NoticeBanner กลางจออีก
+- กด ⚙️ → modal เปิดกลางจอ, ทำงาน select/test ได้
+- ก่อนเลือก endpoint → dropzone ถูก lock, ไม่สามารถเปิด file picker ได้, ปุ่มที่เห็นคือ "Open endpoint settings"
+- หลังเลือก endpoint → ปุ่ม "Browse files" กลับมา, ลาก/อัปไฟล์ได้ปกติ

@@ -18,21 +18,22 @@ import {
   AlertCircle,
   AlertTriangle,
   Settings,
-  ChevronDown,
+  Lock,
   PlayCircle,
 } from "lucide-react";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
+
 import {
   Select,
   SelectContent,
@@ -40,12 +41,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Spinner } from "./Spinner";
 import {
   fileToDataUrl,
@@ -112,7 +107,7 @@ export function OcrPanel() {
   type TestResult = { ok: boolean; status: number; latencyMs: number; error: string | null };
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(true);
+  const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
 
 
 
@@ -140,16 +135,15 @@ export function OcrPanel() {
   const selectedVar = variables.find((v) => v.var_id === selectedVarId);
   const canRun = !!selectedVar?.description?.trim();
 
-  // Reset test result + reopen settings when variable/engine changes
+  // Reset test result + reopen dialog when variable/engine changes
   useEffect(() => {
     setTestResult(null);
-    setSettingsOpen(true);
   }, [selectedVarId, engine]);
 
-  // Auto-collapse settings after successful test
+  // Auto-close dialog after successful test
   useEffect(() => {
     if (testResult?.ok) {
-      const t = setTimeout(() => setSettingsOpen(false), 600);
+      const t = setTimeout(() => setEndpointDialogOpen(false), 600);
       return () => clearTimeout(t);
     }
   }, [testResult]);
@@ -327,306 +321,282 @@ export function OcrPanel() {
     }
   };
 
-  const NoticeBanner = (
-    <TooltipProvider delayDuration={150}>
-      <div className="flex items-center justify-center gap-2 rounded-full border bg-accent/40 px-3 py-1.5 text-xs text-muted-foreground">
-        {engine === "webhook" ? (
-          <Webhook className="h-3.5 w-3.5 text-primary" />
-        ) : (
-          <Server className="h-3.5 w-3.5 text-primary" />
-        )}
-        <span>
-          OCR engine: <span className="font-medium text-foreground">{ENGINE_LABEL[engine]}</span>
-        </span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={(e) => e.stopPropagation()}
-              className="text-muted-foreground/80 hover:text-foreground"
-              aria-label="Engine details"
-            >
-              <Info className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs text-xs leading-relaxed">
-            {engine === "webhook" &&
-              "Files are POSTed (server-side) to the URL stored in the selected variable. The endpoint must respond with { status: \"success\", markdown: \"…\" }."}
-            {engine === "selfhosted" &&
-              "Files are POSTed from your browser to the URL in the selected variable (e.g. a local Docker container). Your container must enable CORS."}
-          </TooltipContent>
-        </Tooltip>
-      </div>
-    </TooltipProvider>
-  );
-
   const EngineSelector = (
-    <Card className="space-y-4 p-4">
-      <div>
-        <Label className="text-sm font-medium">OCR Engine</Label>
-        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {(
-            [
-              { id: "webhook" as const, icon: Webhook, label: "Webhook", sub: "External URL" },
-              { id: "selfhosted" as const, icon: Server, label: "Self-hosted", sub: "Docker / localhost" },
-            ]
-          ).map(({ id, icon: Icon, label, sub }) => {
-            const active = engine === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                disabled={submitting}
-                onClick={() => {
-                  setEngine(id);
-                  setSelectedVarId("");
-                  reset();
-                }}
-                className={`flex items-start gap-3 rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                  active
-                    ? "border-primary bg-accent/40 shadow-sm"
-                    : "border-border hover:border-primary/50 hover:bg-accent/20"
-                }`}
-              >
-                <div
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
-                    active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">{label}</p>
-                  <p className="text-xs text-muted-foreground">{sub}</p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+    <Card className="flex items-center justify-between gap-3 p-3">
+      <div className="inline-flex rounded-lg border bg-muted p-1">
+        {(
+          [
+            { id: "webhook" as const, icon: Webhook, label: "Webhook" },
+            { id: "selfhosted" as const, icon: Server, label: "Self-hosted" },
+          ]
+        ).map(({ id, icon: Icon, label }) => {
+          const active = engine === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                setEngine(id);
+                setSelectedVarId("");
+                reset();
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                active
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          );
+        })}
       </div>
 
-      {(
-        <Collapsible
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          className="overflow-hidden rounded-xl border bg-card"
+      <div className="flex items-center gap-2">
+        {selectedVar?.description?.trim() && (
+          <span className="hidden items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs sm:inline-flex">
+            <span
+              className={`h-2 w-2 rounded-full ${
+                testResult?.ok
+                  ? "bg-emerald-500"
+                  : testResult && !testResult.ok
+                    ? "bg-destructive"
+                    : "bg-amber-500"
+              }`}
+            />
+            <span className="max-w-[160px] truncate font-medium text-foreground">
+              {selectedVar.variable ?? "(unnamed)"}
+            </span>
+          </span>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setEndpointDialogOpen(true)}
+          disabled={submitting}
+          title="Endpoint settings"
         >
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-accent/30"
-            >
-              <div className="flex min-w-0 items-center gap-2.5">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <Settings className="h-3.5 w-3.5" />
-                </div>
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="text-sm font-semibold text-foreground">
-                    Endpoint settings
-                  </span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                    {ENGINE_CATEGORY[engine]}
-                  </span>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {!settingsOpen && (
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <span
-                      className={`h-2 w-2 rounded-full ${
-                        testResult?.ok
-                          ? "bg-emerald-500"
-                          : testResult && !testResult.ok
-                            ? "bg-destructive"
-                            : selectedVar?.description?.trim()
-                              ? "bg-amber-500"
-                              : "bg-muted-foreground/40"
-                      }`}
-                    />
-                    <span className="max-w-[160px] truncate font-medium text-foreground">
-                      {selectedVar?.variable ?? "Not selected"}
-                    </span>
-                  </div>
-                )}
-                <ChevronDown
-                  className={`h-4 w-4 text-muted-foreground transition-transform ${
-                    settingsOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </div>
-            </button>
-          </CollapsibleTrigger>
-
-          <CollapsibleContent>
-            <div className="space-y-3 border-t px-4 py-3">
-              {/* Action row: dropdown + refresh + test + status */}
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="min-w-[200px] flex-1">
-                  <Select
-                    value={selectedVarId}
-                    onValueChange={setSelectedVarId}
-                    disabled={submitting}
-                  >
-                    <SelectTrigger className="h-10 bg-background">
-                      <SelectValue
-                        placeholder={
-                          variables.length === 0
-                            ? `No "${ENGINE_CATEGORY[engine]}" variables`
-                            : "Select a variable…"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {variables.map((v) => (
-                        <SelectItem
-                          key={v.var_id}
-                          value={v.var_id}
-                          disabled={!v.description?.trim()}
-                        >
-                          {v.variable ?? "(unnamed)"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="group h-10 w-10 shrink-0"
-                  onClick={loadVariables}
-                  disabled={varsLoading || submitting}
-                  title="Refresh variables"
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${
-                      varsLoading ? "animate-spin" : ""
-                    }`}
-                  />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-10 shrink-0"
-                  onClick={runConnectionTest}
-                  disabled={!selectedVar?.description?.trim() || testing || submitting}
-                >
-                  {testing ? (
-                    <>
-                      <RefreshCw className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      Testing…
-                    </>
-                  ) : (
-                    <>
-                      <Plug className="mr-1 h-3.5 w-3.5" />
-                      Test
-                    </>
-                  )}
-                </Button>
-                {testResult && !testing && (
-                  <div
-                    className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
-                      testResult.ok
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                        : "border-destructive/30 bg-destructive/10 text-destructive"
-                    }`}
-                  >
-                    {testResult.ok ? (
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                    ) : (
-                      <AlertCircle className="h-3.5 w-3.5" />
-                    )}
-                    <span className="font-medium">
-                      {testResult.ok
-                        ? `${testResult.status} · ${testResult.latencyMs}ms`
-                        : testResult.error ?? "Failed"}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Current value (compact, inline) */}
-              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-2.5 py-2">
-                <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                {selectedVar?.description?.trim() ? (
-                  <code className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-primary">
-                    {selectedVar.description}
-                  </code>
-                ) : (
-                  <span className="flex-1 text-xs italic text-muted-foreground">
-                    No variable selected
-                  </span>
-                )}
-                <span
-                  className={`h-2 w-2 shrink-0 rounded-full ${
-                    selectedVar?.description?.trim()
-                      ? "bg-emerald-500"
-                      : "bg-muted-foreground/40"
-                  }`}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 border-t bg-muted/30 px-4 py-2">
-              <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">
-                Manage variables in the{" "}
-                <span className="font-medium text-foreground">Variables</span> tab
-              </span>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
+          <Settings className="mr-1.5 h-3.5 w-3.5" />
+          Endpoint settings
+        </Button>
+      </div>
     </Card>
   );
+
+  const EndpointDialog = (
+    <Dialog open={endpointDialogOpen} onOpenChange={setEndpointDialogOpen}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            Endpoint settings
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              {ENGINE_CATEGORY[engine]}
+            </span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="min-w-[200px] flex-1">
+              <Select
+                value={selectedVarId}
+                onValueChange={setSelectedVarId}
+                disabled={submitting}
+              >
+                <SelectTrigger className="h-10 bg-background">
+                  <SelectValue
+                    placeholder={
+                      variables.length === 0
+                        ? `No "${ENGINE_CATEGORY[engine]}" variables`
+                        : "Select a variable…"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {variables.map((v) => (
+                    <SelectItem
+                      key={v.var_id}
+                      value={v.var_id}
+                      disabled={!v.description?.trim()}
+                    >
+                      {v.variable ?? "(unnamed)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="group h-10 w-10 shrink-0"
+              onClick={loadVariables}
+              disabled={varsLoading || submitting}
+              title="Refresh variables"
+            >
+              <RefreshCw
+                className={`h-4 w-4 transition-transform duration-500 group-hover:rotate-180 ${
+                  varsLoading ? "animate-spin" : ""
+                }`}
+              />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-10 shrink-0"
+              onClick={runConnectionTest}
+              disabled={!selectedVar?.description?.trim() || testing || submitting}
+            >
+              {testing ? (
+                <>
+                  <RefreshCw className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  Testing…
+                </>
+              ) : (
+                <>
+                  <Plug className="mr-1 h-3.5 w-3.5" />
+                  Test
+                </>
+              )}
+            </Button>
+          </div>
+
+          {testResult && !testing && (
+            <div
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
+                testResult.ok
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : "border-destructive/30 bg-destructive/10 text-destructive"
+              }`}
+            >
+              {testResult.ok ? (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              ) : (
+                <AlertCircle className="h-3.5 w-3.5" />
+              )}
+              <span className="font-medium">
+                {testResult.ok
+                  ? `${testResult.status} · ${testResult.latencyMs}ms`
+                  : testResult.error ?? "Failed"}
+              </span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-2.5 py-2">
+            <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            {selectedVar?.description?.trim() ? (
+              <code className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-primary">
+                {selectedVar.description}
+              </code>
+            ) : (
+              <span className="flex-1 text-xs italic text-muted-foreground">
+                No variable selected
+              </span>
+            )}
+            <span
+              className={`h-2 w-2 shrink-0 rounded-full ${
+                selectedVar?.description?.trim()
+                  ? "bg-emerald-500"
+                  : "bg-muted-foreground/40"
+              }`}
+            />
+          </div>
+
+          <div className="flex items-center gap-2 rounded-md bg-muted/30 px-2.5 py-2">
+            <Info className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="text-[11px] text-muted-foreground">
+              Manage variables in the{" "}
+              <span className="font-medium text-foreground">Variables</span> tab
+            </span>
+          </div>
+
+          <div className="flex justify-end pt-1">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setEndpointDialogOpen(false)}
+            >
+              Done
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
 
   if (!file) {
     return (
       <div className="space-y-4">
-        <div className="flex justify-center">{NoticeBanner}</div>
         {EngineSelector}
+        {EndpointDialog}
         <div
-          {...getRootProps()}
+          {...(canRun ? getRootProps() : {})}
           className={`group relative flex min-h-[340px] flex-col items-center justify-center rounded-3xl border-2 border-dashed bg-card p-12 text-center transition-all ${
             !canRun
-              ? "cursor-not-allowed opacity-60"
+              ? "cursor-not-allowed border-border/60 bg-muted/20"
               : isDragActive
                 ? "cursor-pointer border-primary bg-accent/40 scale-[1.01]"
                 : "cursor-pointer border-border hover:border-primary/60 hover:bg-accent/20"
           }`}
           style={{ boxShadow: isDragActive ? "var(--shadow-elegant)" : undefined }}
         >
-          <input {...getInputProps()} />
+          {canRun && <input {...getInputProps()} />}
           <div
-            className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl text-primary-foreground transition-transform group-hover:scale-105"
-            style={{ background: "var(--gradient-primary)" }}
+            className={`mb-6 flex h-20 w-20 items-center justify-center rounded-2xl transition-transform group-hover:scale-105 ${
+              canRun ? "text-primary-foreground" : "bg-muted text-muted-foreground"
+            }`}
+            style={canRun ? { background: "var(--gradient-primary)" } : undefined}
           >
-            <Upload className="h-9 w-9" />
+            {canRun ? <Upload className="h-9 w-9" /> : <Lock className="h-9 w-9" />}
           </div>
           <h2 className="text-2xl font-semibold text-foreground">
             {!canRun
-              ? "Select a variable to continue"
+              ? "Endpoint not configured"
               : isDragActive
                 ? "Drop your file here"
                 : "Drop a file or click to upload"}
           </h2>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Images (PNG, JPG, WebP) and PDFs are supported.
+            {!canRun
+              ? `Open Endpoint settings and pick a ${ENGINE_CATEGORY[engine]} variable before uploading.`
+              : "Images (PNG, JPG, WebP) and PDFs are supported."}
           </p>
-          <Button
-            type="button"
-            size="lg"
-            className="mt-8 shadow-md"
-            disabled={!canRun || submitting}
-            onClick={(e) => e.stopPropagation()}
-          >
-            Browse files
-          </Button>
+          {canRun ? (
+            <Button
+              type="button"
+              size="lg"
+              className="mt-8 shadow-md"
+              disabled={submitting}
+              onClick={(e) => e.stopPropagation()}
+            >
+              Browse files
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="lg"
+              variant="outline"
+              className="mt-8"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEndpointDialogOpen(true);
+              }}
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              Open endpoint settings
+            </Button>
+          )}
         </div>
       </div>
     );
   }
+
 
   const isImage = file.type.startsWith("image/");
   const isPdf = file.type === "application/pdf";
@@ -636,8 +606,9 @@ export function OcrPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-center">{NoticeBanner}</div>
       {EngineSelector}
+      {EndpointDialog}
+
 
       <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">

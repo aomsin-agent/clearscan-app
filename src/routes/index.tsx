@@ -1,7 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense, useState } from "react";
-import { ScanLine, History as HistoryIcon, Database } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScanLine, History as HistoryIcon, Database, ChevronDown } from "lucide-react";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { OcrPanel } from "@/components/ocr/OcrPanel";
 
 const HistoryPanel = lazy(() =>
@@ -33,8 +40,16 @@ function PanelFallback() {
   );
 }
 
+const TAB_OPTIONS = [
+  { value: "ocr", label: "OCR", Icon: ScanLine },
+  { value: "history", label: "History", Icon: HistoryIcon },
+  { value: "variable", label: "Variable", Icon: Database },
+] as const;
+
 function Index() {
-  const [tab, setTab] = useState("ocr");
+  const [tab, setTab] = useState<string>("ocr");
+  const current = TAB_OPTIONS.find((t) => t.value === tab) ?? TAB_OPTIONS[0];
+  const CurrentIcon = current.Icon;
 
   return (
     <div className="min-h-screen bg-background">
@@ -52,26 +67,44 @@ function Index() {
               <p className="text-xs text-muted-foreground">Extract text from images & PDFs</p>
             </div>
           </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <CurrentIcon className="h-4 w-4" />
+                {current.label}
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              {TAB_OPTIONS.map(({ value, label, Icon }) => (
+                <DropdownMenuItem
+                  key={value}
+                  onSelect={() => setTab(value)}
+                  className={
+                    tab === value ? "bg-accent font-medium text-foreground" : undefined
+                  }
+                >
+                  <Icon className="mr-2 h-4 w-4" />
+                  {label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <Tabs value={tab} onValueChange={setTab} className="w-full">
-          <TabsList className="h-11 w-full max-w-md justify-start rounded-xl bg-muted p-1">
-            <TabTrigger value="ocr" label="OCR" Icon={ScanLine} />
-            <TabTrigger value="history" label="History" Icon={HistoryIcon} />
-            <TabTrigger value="variable" label="Variable" Icon={Database} />
-          </TabsList>
-
-          <TabsContent value="ocr" className="mt-6">
+          <TabsContent value="ocr" className="mt-0">
             <OcrPanel />
           </TabsContent>
-          <TabsContent value="history" className="mt-6">
+          <TabsContent value="history" className="mt-0">
             <Suspense fallback={<PanelFallback />}>
               <HistoryPanel />
             </Suspense>
           </TabsContent>
-          <TabsContent value="variable" className="mt-6">
+          <TabsContent value="variable" className="mt-0">
             <Suspense fallback={<PanelFallback />}>
               <VariablePanel />
             </Suspense>
@@ -79,25 +112,5 @@ function Index() {
         </Tabs>
       </main>
     </div>
-  );
-}
-
-function TabTrigger({
-  value,
-  label,
-  Icon,
-}: {
-  value: string;
-  label: string;
-  Icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <TabsTrigger
-      value={value}
-      className="flex-1 gap-2 rounded-lg text-sm data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-sm"
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-    </TabsTrigger>
   );
 }
