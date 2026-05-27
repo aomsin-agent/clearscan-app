@@ -772,9 +772,8 @@ export function OcrPanel() {
               </div>
             )}
 
-            {/* Pre-validate state for webhook / selfhosted */}
+            {/* Pre-validate state */}
             {status !== "processing" &&
-              engine !== "lovable" &&
               responseKind === "none" && (
                 <div className="flex h-[460px] flex-col items-center justify-center gap-4 rounded-md border border-dashed bg-muted/20 p-6 text-center">
                   <div
