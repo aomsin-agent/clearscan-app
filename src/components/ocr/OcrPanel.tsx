@@ -18,7 +18,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Settings,
-  ChevronDown,
+  Lock,
   PlayCircle,
 } from "lucide-react";
 import {
