@@ -52,6 +52,7 @@ import { runSelfHostedOcr, testSelfHostedEndpoint, type PythonApiResult } from "
 const PythonApiResultPanel = lazy(() =>
   import("./PythonApiResultPanel").then((m) => ({ default: m.PythonApiResultPanel })),
 );
+const MarkdownView = lazy(() => import("./MarkdownView"));
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 
