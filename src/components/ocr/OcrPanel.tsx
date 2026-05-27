@@ -388,12 +388,12 @@ export function OcrPanel() {
 
   const EndpointDialog = (
     <Dialog open={endpointDialogOpen} onOpenChange={setEndpointDialogOpen}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-xl sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            Endpoint settings
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            <Settings className="h-4 w-4 shrink-0" />
+            <span className="truncate">Endpoint settings</span>
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
               {ENGINE_CATEGORY[engine]}
             </span>
           </DialogTitle>
@@ -401,7 +401,7 @@ export function OcrPanel() {
 
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="min-w-[200px] flex-1">
+            <div className="min-w-0 flex-1">
               <Select
                 value={selectedVarId}
                 onValueChange={setSelectedVarId}
@@ -475,11 +475,11 @@ export function OcrPanel() {
               }`}
             >
               {testResult.ok ? (
-                <CheckCircle2 className="h-3.5 w-3.5" />
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               ) : (
-                <AlertCircle className="h-3.5 w-3.5" />
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               )}
-              <span className="font-medium">
+              <span className="min-w-0 break-words font-medium">
                 {testResult.ok
                   ? `${testResult.status} · ${testResult.latencyMs}ms`
                   : testResult.error ?? "Failed"}
@@ -487,10 +487,13 @@ export function OcrPanel() {
             </div>
           )}
 
-          <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-2.5 py-2">
+          <div className="flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border bg-muted/40 px-2.5 py-2">
             <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             {selectedVar?.description?.trim() ? (
-              <code className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-primary">
+              <code
+                className="min-w-0 flex-1 break-all font-mono text-xs font-medium text-primary"
+                title={selectedVar.description}
+              >
                 {selectedVar.description}
               </code>
             ) : (
