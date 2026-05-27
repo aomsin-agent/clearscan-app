@@ -932,7 +932,16 @@ export function OcrPanel() {
               )}
           </div>
         </Card>
+        )}
       </div>
+
+      {showPyPanel && pyResult && (
+        <PythonApiResultPanel
+          result={pyResult}
+          onValidateAgain={runValidate}
+          submitting={submitting}
+        />
+      )}
     </div>
   );
 }
