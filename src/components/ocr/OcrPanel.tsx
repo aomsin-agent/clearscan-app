@@ -69,12 +69,12 @@ interface VarOption {
 
 const ENGINE_CATEGORY: Record<Engine, string> = {
   webhook: "webhook",
-  selfhosted: "python-api",
+  selfhosted: "Python-API",
 };
 
 const ENGINE_LABEL: Record<Engine, string> = {
   webhook: "Webhook URL",
-  selfhosted: "Self-hosted (Docker)",
+  selfhosted: "Python-API (Docker)",
 };
 
 export function OcrPanel() {
@@ -327,7 +327,7 @@ export function OcrPanel() {
         {(
           [
             { id: "webhook" as const, icon: Webhook, label: "Webhook" },
-            { id: "selfhosted" as const, icon: Server, label: "Self-hosted" },
+            { id: "selfhosted" as const, icon: Server, label: "Python-API" },
           ]
         ).map(({ id, icon: Icon, label }) => {
           const active = engine === id;
@@ -742,7 +742,7 @@ export function OcrPanel() {
                 <Spinner />
                 <p className="text-sm text-muted-foreground">
                   {engine === "selfhosted"
-                    ? "Uploading to self-hosted container and waiting for OCR result…"
+                    ? "Uploading to Python-API container and waiting for OCR result…"
                     : `Sending file to ${ENGINE_LABEL[engine]}…`}
                 </p>
               </div>
