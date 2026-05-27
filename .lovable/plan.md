@@ -1,56 +1,30 @@
-## เป้าหมาย
+## สาเหตุ
 
-ลบ engine **Lovable AI** (Gemini Flash vision OCR) ทั้งหมดออกจากแอป — เหลือเฉพาะ **Webhook** และ **Self-hosted (python-api)** ที่ใช้ flow validate
+ที่ `src/routes/index.tsx` ทั้งสาม `TabsContent` (OCR, History, Variable) ใช้ `forceMount` ทำให้ **mount พร้อมกันทั้งสาม panel ตั้งแต่หน้าโหลดครั้งแรก**:
 
----
+- `OcrPanel` — import ก้อนใหญ่แบบ static (`react-markdown`, `remark-gfm`, `react-dropzone`, `PythonApiResultPanel`, `file-utils` ที่มี pdfjs) และยิง Supabase query โหลด variables ตอน mount
+- `HistoryPanel` — ยิง Supabase query `ocr_history` ตอน mount
+- `VariablePanel` — ยิง Supabase query `variable` ตอน mount (เป็นไฟล์ใหญ่ ~458 บรรทัด)
 
-## รายการที่ลบ / แก้
+ผลคือเบราว์เซอร์ต้อง parse + render ทุก panel + รอ network 3 ก้อนพร้อมกันก่อนที่ main thread จะว่างพอให้ Radix Tabs ตอบสนองการคลิก ทำให้คลิกเปลี่ยน tab หรือกด explore ไฟล์ "ค้าง" ไปสองสามวินาทีหลังเปิดเว็บ
 
-### 1. `src/lib/ocr.functions.ts`
-- ลบ `runOcr` server function ทั้งก้อน (รวม `InputSchema` ของมัน)
-- ลบ import `z` ถ้าไม่มี schema อื่นใช้ (ยังใช้กับ `WebhookSchema` / `TestSchema` → คงไว้)
-- คง `runWebhookOcr` และ `testWebhook` ไว้ตามเดิม
+## แนวทางแก้
 
-### 2. `src/components/ocr/OcrPanel.tsx`
-- ลบ type member `"lovable"` จาก `type Engine`
-- ลบ key `lovable` จาก `ENGINE_CATEGORY` และ `ENGINE_LABEL`
-- ลบ import `runOcr` และ `useServerFn(runOcr)` (ตัวแปร `runOcrFn`)
-- ลบ option "Lovable AI" จาก `EngineSelector` (grid เหลือ 2 ปุ่ม: Webhook, Self-hosted) — ปรับ `sm:grid-cols-3` → `sm:grid-cols-2`
-- ลบ ฟังก์ชัน `runLovableExtract` ทั้งก้อน
-- เปลี่ยน default `useState<Engine>("lovable")` → `useState<Engine>("webhook")`
-- ใน `onDrop`: ลบสาย `if (engine === "lovable") runLovableExtract(...)` — เหลือเฉพาะ `loadFile(...)`
-- ใน `needsVariable`: `engine !== "lovable"` ไม่จำเป็นแล้ว (engine ทั้งหมดต้อง variable) → `const needsVariable = true;`
-- ลบเงื่อนไข `engine === "lovable"` / `engine !== "lovable"` ทุกจุดใน JSX:
-  - tooltip ใน NoticeBanner (เหลือเฉพาะ webhook / selfhosted)
-  - spinner message (ลบเคส lovable)
-  - "Pre-validate state" — เดิม `engine !== "lovable"` → ลบเงื่อนไขนี้ (เป็น default)
-  - "Validate again" button — เดิม `engine !== "lovable"` → ลบเงื่อนไขนี้
-- ลบ import `Sparkles` ถ้าไม่ได้ใช้แล้ว (เช็คใน NoticeBanner ที่ใช้ icon เดียวกัน — เปลี่ยนเป็น `Webhook` หรือ `Server` ตาม engine ปัจจุบัน หรือคง Sparkles เป็น decoration ถ้ายังใช้)
+1. **ถอด `forceMount` ออก** — ให้แค่ tab ที่ active เท่านั้นที่ mount จริง การสลับ tab จะ unmount panel เก่า (state จะ reset แต่ปัจจุบัน OcrPanel ก็ไม่ persist อะไรข้าม tab อยู่แล้ว, HistoryPanel มี `historyCache` module-level cache ป้องกัน flicker อยู่แล้ว)
+2. **`React.lazy` + `Suspense`** สำหรับ `HistoryPanel` และ `VariablePanel` เพื่อไม่ให้ JS ของสอง panel นี้ถูก parse จนกว่าผู้ใช้กดเข้า tab จริง ๆ
+3. **เพิ่ม `historyCache`-style module cache** ให้ `VariablePanel` (ถ้าจำเป็น) เพื่อกัน flicker เวลาสลับ tab กลับมา — ตรวจดูก่อนว่ามีอยู่แล้วหรือไม่
+4. **(เลือกได้) lazy-load `PythonApiResultPanel`** ภายใน `OcrPanel` ด้วย `React.lazy` เพื่อลดน้ำหนัก initial bundle ของ tab OCR
 
-### 3. ไม่แตะ
-- `LOVABLE_API_KEY` secret — ปล่อยไว้ (อาจมีฟีเจอร์อื่นใช้ในอนาคต) ไม่ลบ secret อัตโนมัติ
-- `docs/OCR_BACKEND_CONTRACT.md` — ไม่ได้กล่าวถึง Lovable AI
-- `docs/python-api-container-process.md` — ไม่ได้กล่าวถึง Lovable AI
-- ping string `"lovable-ocr-test"` — เป็นแค่ identifier, ไม่เกี่ยวกับ Lovable AI engine
-
----
-
-## การตรวจสอบหลังลบ
-
-หลังแก้แล้วจะรัน:
-```
-rg -n "lovable|runOcr|runLovableExtract|Lovable AI|gemini" src/
-```
-เพื่อยืนยันไม่มี reference หลงเหลือ (ยกเว้น `lovable.dev` ใน comments หรือ ping string ที่ไม่เกี่ยวกับ engine), แล้วรัน `bunx tsc --noEmit` ให้ผ่าน
-
----
+ไม่แตะ business logic / Supabase contract / UI ของแต่ละ panel
 
 ## ไฟล์ที่แก้
 
-| ไฟล์ | การเปลี่ยน |
-|---|---|
-| `src/lib/ocr.functions.ts` | ลบ `runOcr` + `InputSchema` |
-| `src/components/ocr/OcrPanel.tsx` | ลบ engine `lovable` และทุก code path ที่เกี่ยวข้อง, default = `webhook` |
-| `.lovable/plan.md` | log การลบ |
+- `src/routes/index.tsx` — ลบ `forceMount`, ใช้ `React.lazy` + `Suspense` สำหรับ `HistoryPanel` / `VariablePanel`, ใส่ fallback เล็ก ๆ (skeleton หรือ spinner)
+- `src/components/ocr/OcrPanel.tsx` — เปลี่ยน import `PythonApiResultPanel` เป็น `lazy()` และห่อด้วย `<Suspense>` ตรงจุดใช้งาน
+- `src/components/variable/VariablePanel.tsx` — (เลือกได้) เพิ่ม module-level cache แบบเดียวกับ HistoryPanel
 
-ไม่แก้ database, ไม่แก้ webhook/selfhosted logic
+## ตรวจสอบหลังแก้
+
+- เปิดหน้าเว็บใหม่ → คลิกสลับ tab OCR/History/Variable ได้ทันที
+- กด "explore" (เปิด dropzone / file picker) ของ OCR ทำงานได้ทันทีไม่ต้องรอ
+- เปิด Network ดู: Supabase query ของ History/Variable ต้องไม่ยิงจนกว่าจะกดเข้า tab นั้น
